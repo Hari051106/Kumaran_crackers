@@ -1,0 +1,34 @@
+name: kumaran_crackers
+description: Kumaran Crackers - Celebrate Every Moment with Kumaran Crackers.
+publish_to: none
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State management
+  flutter_riverpod: ^2.6.1
+
+  # Navigation
+  go_router: ^14.6.2
+
+  # Networking
+  dio: ^5.7.0
+
+  # Secure token storage (Android Keystore / iOS Keychain)
+  flutter_secure_storage: ^9.2.2
+
+  # Product imagery
+  cached_network_image: ^3.4.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true

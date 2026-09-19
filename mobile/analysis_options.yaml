@@ -1,0 +1,32 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-raw-types: true
+  errors:
+    # An unawaited future in UI code is usually a real bug, not a style nit.
+    unawaited_futures: error
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
+    - web/**
+
+linter:
+  # Map form throughout: YAML cannot mix `key: value` entries with `- item`
+  # list entries under the same key.
+  rules:
+    # Dart forbids private named parameters, so the fix this lint suggests
+    # (`this._field` in a named slot) does not compile.
+    prefer_initializing_formals: false
+
+    always_declare_return_types: true
+    avoid_print: true
+    prefer_const_constructors: true
+    prefer_const_declarations: true
+    prefer_final_locals: true
+    require_trailing_commas: true
+    sort_child_properties_last: true
+    unawaited_futures: true
+    use_super_parameters: true

@@ -7,7 +7,7 @@ a single authoritative backend.
 
 | Component | Name | Stack | Status |
 |---|---|---|---|
-| 📱 Customer mobile | Kumaran Crackers | Flutter · Riverpod · GoRouter · Dio | ⬜ Planned (M4) |
+| 📱 Customer mobile | Kumaran Crackers | Flutter · Riverpod · GoRouter · Dio | 🟢 Milestone 4 complete |
 | 🖥️ Admin desktop | Kumaran Crackers Admin | Electron · React · Vite · Tailwind | 🟢 Milestone 3 complete |
 | ⚙️ Backend API | — | FastAPI · SQLAlchemy 2.x · PostgreSQL · Alembic | 🟢 Milestones 1–3 complete |
 
@@ -56,7 +56,7 @@ client-supplied prices and stock figures are never trusted.
 ```
 .
 ├── backend/     FastAPI service + PostgreSQL migrations   (see backend/README.md)
-├── mobile/      Flutter customer application              (Milestone 4)
+├── mobile/      Flutter customer application              (see mobile/README.md)
 └── desktop/     Electron + React admin application        (Milestone 3)
 ```
 
@@ -87,8 +87,8 @@ API documentation: http://127.0.0.1:8000/docs
 | **1** | **Backend foundation** — config, database, migrations, auth, roles | ✅ **Complete** |
 | **2** | **Categories, products, product images, catalogue APIs** | ✅ **Complete** |
 | **3** | **Admin desktop — login, dashboard, products, categories, inventory** | ✅ **Complete** |
-| 4 | Customer mobile — login, home, categories, products, details | ⬜ Next |
-| 5 | Cart, addresses, checkout | ⬜ |
+| **4** | **Customer mobile — login, home, categories, products, details** | ✅ **Complete** |
+| 5 | Cart, addresses, checkout | ⬜ Next |
 | 6 | Orders — creation, history, tracking, admin management | ⬜ |
 | 7 | Delivery assignment and status | ⬜ |
 | 8 | Reports and analytics | ⬜ |
@@ -140,6 +140,23 @@ API documentation: http://127.0.0.1:8000/docs
 **224 tests passing**: 201 backend (pytest, real PostgreSQL) and 23 end-to-end
 (Playwright — 11 auditing the real Electron binary, 12 driving the UI against a
 live backend).
+
+### Milestone 4 delivered
+
+- **Kumaran Crackers** customer app in Flutter: splash with session restore,
+  register, sign in, home, category browsing, catalogue and product detail
+- Material 3 throughout, with Riverpod, GoRouter, Dio, secure token storage
+  and cached product imagery
+- Money kept as exact decimal strings end to end, formatted with Indian digit
+  grouping and never parsed into a `double`
+- Tokens in the Android Keystore / iOS Keychain, with a single shared
+  in-flight refresh
+- Catalogue search (debounced), category and price filters, five sort orders,
+  infinite scroll and pull-to-refresh
+- Stock state always carried by words and an icon, not colour alone
+
+**264 tests passing** overall: 201 backend, 23 desktop end-to-end, and 40
+Flutter unit and widget tests.
 
 ---
 

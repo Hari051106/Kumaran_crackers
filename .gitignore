@@ -29,6 +29,8 @@ release/
 *.log
 npm-debug.log*
 yarn-error.log*
+test-results/
+playwright-report/
 
 # ---- Flutter / Dart ---------------------------------------------------------
 .dart_tool/
@@ -41,6 +43,8 @@ build/
 local.properties
 **/ios/Pods/
 **/ios/.symlinks/
+mobile/ios/Flutter/Generated.xcconfig
+mobile/ios/Flutter/flutter_export_environment.sh
 
 # ---- Editors / OS -----------------------------------------------------------
 .idea/
