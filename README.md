@@ -9,7 +9,7 @@ a single authoritative backend.
 |---|---|---|---|
 | 📱 Customer mobile | Kumaran Crackers | Flutter · Riverpod · GoRouter · Dio | ⬜ Planned (M4) |
 | 🖥️ Admin desktop | Kumaran Crackers Admin | Electron · React · Vite · Tailwind | ⬜ Planned (M3) |
-| ⚙️ Backend API | — | FastAPI · SQLAlchemy 2.x · PostgreSQL · Alembic | 🟢 Milestone 1 complete |
+| ⚙️ Backend API | — | FastAPI · SQLAlchemy 2.x · PostgreSQL · Alembic | 🟢 Milestones 1–2 complete |
 
 ---
 
@@ -85,8 +85,8 @@ API documentation: http://127.0.0.1:8000/docs
 | # | Scope | Status |
 |---|---|---|
 | **1** | **Backend foundation** — config, database, migrations, auth, roles | ✅ **Complete** |
-| 2 | Categories, products, product images, catalogue APIs | ⬜ Next |
-| 3 | Admin desktop — login, dashboard, products, categories, inventory | ⬜ |
+| **2** | **Categories, products, product images, catalogue APIs** | ✅ **Complete** |
+| 3 | Admin desktop — login, dashboard, products, categories, inventory | ⬜ Next |
 | 4 | Customer mobile — login, home, categories, products, details | ⬜ |
 | 5 | Cart, addresses, checkout | ⬜ |
 | 6 | Orders — creation, history, tracking, admin management | ⬜ |
@@ -103,7 +103,22 @@ API documentation: http://127.0.0.1:8000/docs
 - bcrypt password hashing
 - Role-based access control (ADMIN / STAFF / CUSTOMER) enforced server-side
 - Separate customer and back-office login paths
-- 87 tests passing against a real PostgreSQL database
+
+### Milestone 2 delivered
+
+- Categories, products and product images, with the shop's eight opening
+  categories seeded and fully admin-editable
+- Public catalogue API: search, category filter, price range, in-stock,
+  featured and discounted filters, six sort orders, pagination
+- Money as `Decimal` / `Numeric(10,2)` end to end — never `float`
+- Discount and stock status derived on read, so they cannot drift from prices
+- Atomic stock adjustment, verified to lose no updates under 40 concurrent writes
+- Catalogue visibility enforced server-side: a product is public only when it
+  *and* its category are active, and `include_inactive` is staff-only
+- Five database-level invariants (CHECK constraints, a partial unique index,
+  and FK `RESTRICT`/`CASCADE` rules)
+
+**187 tests passing** against a real PostgreSQL database, 95% coverage.
 
 ---
 
@@ -121,6 +136,7 @@ requirements.
 ## Development conventions
 
 - Business rules belong in `backend/app/services/`. Not in routers, not in clients.
+- Money is `Decimal` everywhere and crosses the wire as a string. Never `float`.
 - Every schema change is an Alembic migration. `create_all()` is not a migration strategy.
 - API responses always go through a Pydantic schema — ORM models are never returned directly.
 - `.env` is never committed. `.env.example` documents every variable.

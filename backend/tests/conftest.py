@@ -31,6 +31,7 @@ os.environ.setdefault("SECRET_KEY", _env.get("SECRET_KEY", "test-secret-" + "x" 
 
 # ruff: noqa: E402 - imports must follow the environment redirection above.
 from collections.abc import Generator
+from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
@@ -42,9 +43,12 @@ from alembic.config import Config
 from app.database import engine, get_db
 from app.enums import RoleName
 from app.main import create_app
+from app.models.category import Category
+from app.models.product import Product, ProductImage
 from app.models.role import Role
 from app.models.user import User
 from app.utils.security import hash_password
+from app.utils.slug import slugify
 
 DEFAULT_PASSWORD = "Test@12345"
 
@@ -186,3 +190,76 @@ def staff_headers(client: TestClient, staff: User) -> dict[str, str]:
 @pytest.fixture
 def admin_headers(client: TestClient, admin: User) -> dict[str, str]:
     return auth_header(login(client, admin.email))
+
+
+# ---- Catalogue factories ----------------------------------------------------
+def make_category(
+    db: Session,
+    *,
+    name: str = "Test Sparklers",
+    slug: str | None = None,
+    is_active: bool = True,
+    display_order: int = 0,
+) -> Category:
+    category = Category(
+        name=name,
+        slug=slug or slugify(name),
+        description=f"{name} for testing.",
+        is_active=is_active,
+        display_order=display_order,
+    )
+    db.add(category)
+    db.commit()
+    db.refresh(category)
+    return category
+
+
+def make_product(
+    db: Session,
+    *,
+    category: Category,
+    name: str = "Test Rocket",
+    sku: str | None = None,
+    slug: str | None = None,
+    mrp: str = "100.00",
+    selling_price: str = "80.00",
+    stock_quantity: int = 50,
+    low_stock_threshold: int = 10,
+    is_active: bool = True,
+    is_featured: bool = False,
+    sold_quantity: int = 0,
+    image_urls: list[str] | None = None,
+) -> Product:
+    """Insert a product. Money is passed as a string so it stays exact."""
+    product = Product(
+        name=name,
+        slug=slug or slugify(name),
+        sku=(sku or slugify(name).upper())[:64],
+        description=f"{name} description.",
+        category_id=category.id,
+        mrp=Decimal(mrp),
+        selling_price=Decimal(selling_price),
+        stock_quantity=stock_quantity,
+        low_stock_threshold=low_stock_threshold,
+        is_active=is_active,
+        is_featured=is_featured,
+        sold_quantity=sold_quantity,
+    )
+    for index, url in enumerate(image_urls or []):
+        product.images.append(
+            ProductImage(image_url=url, display_order=index, is_primary=index == 0)
+        )
+    db.add(product)
+    db.commit()
+    db.refresh(product)
+    return product
+
+
+@pytest.fixture
+def category(db: Session) -> Category:
+    return make_category(db, name="Sparklers Test", display_order=1)
+
+
+@pytest.fixture
+def product(db: Session, category: Category) -> Product:
+    return make_product(db, category=category, name="Electric Sparkler 10cm")

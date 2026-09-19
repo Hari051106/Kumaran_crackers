@@ -16,7 +16,7 @@ presentation layers only.
 | Milestone | Scope | State |
 |---|---|---|
 | **1** | Backend foundation — config, database, auth, roles | ✅ Complete |
-| 2 | Categories, products, product images | ⬜ Not started |
+| **2** | Categories, products, product images, catalogue APIs | ✅ Complete |
 | 3 | Admin desktop — login, dashboard, catalogue, inventory | ⬜ Not started |
 | 4 | Customer mobile — login, home, catalogue | ⬜ Not started |
 | 5 | Cart, addresses, checkout | ⬜ Not started |
@@ -58,7 +58,7 @@ backend/
 │   ├── main.py            FastAPI app factory, CORS, exception handlers
 │   ├── config.py          Environment-driven settings (pydantic-settings)
 │   ├── database.py        Engine, session factory, declarative Base
-│   ├── enums.py           Shared domain vocabulary (RoleName, TokenType)
+│   ├── enums.py           Shared domain vocabulary (roles, tokens, stock, sort)
 │   ├── initial_data.py    One-off first-admin bootstrap
 │   ├── models/            SQLAlchemy 2.x ORM models
 │   ├── schemas/           Pydantic request/response models
@@ -66,7 +66,7 @@ backend/
 │   ├── services/          Business logic
 │   ├── routers/v1/        Versioned HTTP endpoints
 │   ├── dependencies/      Auth + RBAC dependencies
-│   └── utils/             Hashing, JWT, domain errors
+│   └── utils/             Hashing, JWT, slugs, domain errors
 ├── alembic/               Migrations (the only way the schema changes)
 ├── tests/                 pytest suite, runs against real PostgreSQL
 └── requirements.txt
@@ -166,6 +166,90 @@ Base path: `/api/v1`
 | GET | `/users/{id}` | **ADMIN** | Read one user |
 | PATCH | `/users/{id}` | **ADMIN** | Change a user's role or active state |
 
+### Categories — `/categories`
+
+| Method | Path | Access | Purpose |
+|---|---|---|---|
+| GET | `/categories` | **Public** | List categories with live product counts |
+| GET | `/categories/{slug}` | **Public** | One category by slug |
+| POST | `/categories` | **ADMIN** | Create (slug derived server-side) |
+| PATCH | `/categories/{id}` | **ADMIN** | Update; renaming re-slugs |
+| DELETE | `/categories/{id}` | **ADMIN** | Delete; refused if it holds products |
+
+### Products — `/products`
+
+| Method | Path | Access | Purpose |
+|---|---|---|---|
+| GET | `/products` | **Public** | Catalogue search, filter, sort, paginate |
+| GET | `/products/{slug}` | **Public** | Product detail with images |
+| GET | `/products/low-stock` | STAFF | At or below the low-stock threshold |
+| GET | `/products/out-of-stock` | STAFF | Nothing left in stock |
+| POST | `/products` | **ADMIN** | Create (SKU auto-generated if omitted) |
+| GET | `/products/id/{id}` | STAFF | Admin view, including operational fields |
+| PATCH | `/products/id/{id}` | **ADMIN** | Update |
+| DELETE | `/products/id/{id}` | **ADMIN** | Delete, cascading to its images |
+| POST | `/products/id/{id}/activate` | **ADMIN** | Show in the catalogue |
+| POST | `/products/id/{id}/deactivate` | **ADMIN** | Hide without destroying history |
+| POST | `/products/id/{id}/stock` | STAFF | Set (`set_to`) or adjust (`delta`) stock |
+| POST | `/products/id/{id}/images` | **ADMIN** | Add an image |
+| DELETE | `/products/id/{id}/images/{image_id}` | **ADMIN** | Remove an image |
+
+Catalogue query parameters: `query`, `category_id`, `category` (slug),
+`min_price`, `max_price`, `in_stock`, `featured`, `discounted`, `sort`, `page`,
+`page_size`.
+
+Sort values: `newest`, `price_asc`, `price_desc`, `name_asc`, `discount`,
+`popularity`.
+
+---
+
+## Money, discounts and stock
+
+**Money is `Numeric(10, 2)` in the database and `Decimal` in Python — never
+`float`.** Binary floating point cannot represent values such as `0.10`
+exactly, and the error compounds across order totals.
+
+Consequently the API sends money as an exact JSON **string**:
+
+```json
+{ "mrp": "2499.00", "selling_price": "1874.25", "discount_percentage": "25.0" }
+```
+
+Clients must parse these into a decimal type. Parsing into a Dart `double` or a
+JS `number` reintroduces exactly the error the Decimal column exists to avoid.
+
+**The discount is derived, never stored.** `discount_percentage` and
+`discount_amount` are computed from `mrp` and `selling_price` on read, so they
+cannot drift out of step with the prices the way a cached column would.
+
+**Stock status is likewise derived** from `stock_quantity` against
+`low_stock_threshold`:
+
+| Condition | Status |
+|---|---|
+| `stock_quantity <= 0` | `OUT_OF_STOCK` |
+| `stock_quantity <= low_stock_threshold` | `LOW_STOCK` |
+| otherwise | `IN_STOCK` |
+
+**Relative stock changes are atomic.** A `delta` adjustment is applied as a
+single `UPDATE ... SET stock_quantity = stock_quantity + :delta WHERE
+stock_quantity + :delta >= 0`, so two concurrent adjustments cannot lose one
+another, and stock can never be driven negative. Verified under 40 concurrent
+requests. Checkout in Milestones 5 and 6 builds on this same primitive.
+
+---
+
+## Catalogue visibility
+
+A product is publicly visible only when **the product and its category are both
+active**. An active product inside a deactivated category stays hidden.
+
+The `include_inactive` query parameter is honoured **only for signed-in staff**.
+A customer or anonymous caller who sends it still receives the active catalogue,
+so a deactivated item cannot be discovered by guessing a query parameter.
+
+---
+
 ### Error format
 
 Every failure — validation, auth, business rule, or unexpected — uses one shape:
@@ -238,8 +322,34 @@ Seeded with ADMIN, STAFF, CUSTOMER by the baseline migration.
 `hashed_password`, `role_id` → `roles.id` (`ON DELETE RESTRICT`), `is_active`,
 `is_verified`, `last_login_at`, `date_of_birth`, `age_confirmed_at`, timestamps.
 
-`RESTRICT` is deliberate: deleting a role that still has users must fail rather
-than cascade-delete customer accounts.
+**categories** — `id`, `name` (unique), `slug` (unique), `description`,
+`image_url`, `display_order`, `is_active`, timestamps. Seeded with the shop's
+eight opening categories, all editable by an admin afterwards.
+
+**products** — `id`, `name`, `slug` (unique), `sku` (unique), `description`,
+`category_id` → `categories.id` (`RESTRICT`), `mrp`, `selling_price`,
+`stock_quantity`, `low_stock_threshold`, `sold_quantity`, `is_active`,
+`is_featured`, timestamps.
+
+**product_images** — `id`, `product_id` → `products.id` (`CASCADE`),
+`image_url`, `alt_text`, `display_order`, `is_primary`, timestamps.
+
+`RESTRICT` is deliberate: deleting a role that still has users, or a category
+that still has products, must fail rather than cascade-delete live data.
+Product images use `CASCADE` because an image has no meaning without its
+product.
+
+### Database-enforced invariants
+
+These hold even if a bug slips past the service layer:
+
+| Guarantee | Mechanism |
+|---|---|
+| `selling_price <= mrp` | CHECK constraint |
+| Prices and quantities are non-negative | CHECK constraints |
+| At most one primary image per product | Partial unique index |
+| A category with products cannot be deleted | FK `ON DELETE RESTRICT` |
+| Deleting a product removes its images | FK `ON DELETE CASCADE` |
 
 ---
 

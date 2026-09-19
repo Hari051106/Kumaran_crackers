@@ -7,6 +7,7 @@ All runtime configuration is sourced from environment variables (or a local
 from __future__ import annotations
 
 import functools
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import Field, ValidationInfo, computed_field, field_validator
@@ -65,8 +66,10 @@ class Settings(BaseSettings):
 
     # ---- Business rules -----------------------------------------------------
     currency: str = "INR"
-    delivery_charge: float = 50.00
-    free_delivery_threshold: float = 2000.00
+    # Decimal, never float: binary floating point cannot represent values like
+    # 0.10 exactly, and the error compounds through order totals.
+    delivery_charge: Decimal = Decimal("50.00")
+    free_delivery_threshold: Decimal = Decimal("2000.00")
 
     # ---- Regulatory ---------------------------------------------------------
     minimum_purchase_age: int = 18
