@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      The renderer is locked down: no inline scripts, no remote code, and
+      connections only to the local API. 'unsafe-inline' is permitted for
+      styles alone because Vite injects the stylesheet that way.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self';
+               script-src 'self';
+               style-src 'self' 'unsafe-inline';
+               img-src 'self' data: https:;
+               font-src 'self' data:;
+               connect-src 'self' http://127.0.0.1:8000 http://localhost:8000 https:;
+               worker-src 'self' blob:;
+               object-src 'none';
+               base-uri 'self';
+               form-action 'none';
+               frame-ancestors 'none'"
+    />
+    <title>Kumaran Crackers Admin</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

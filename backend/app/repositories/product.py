@@ -158,3 +158,52 @@ class ProductRepository(BaseRepository[Product]):
             .returning(Product.stock_quantity)
         )
         return self.db.scalar(stmt)
+
+    # ---- Aggregates ---------------------------------------------------------
+    def count_all(self, *, is_active: bool | None = None) -> int:
+        stmt = select(func.count(Product.id))
+        if is_active is not None:
+            stmt = stmt.where(Product.is_active.is_(is_active))
+        return self.db.scalar(stmt) or 0
+
+    def count_low_stock(self) -> int:
+        stmt = (
+            select(func.count(Product.id))
+            .where(Product.is_active.is_(True))
+            .where(Product.stock_quantity > 0)
+            .where(Product.stock_quantity <= Product.low_stock_threshold)
+        )
+        return self.db.scalar(stmt) or 0
+
+    def count_out_of_stock(self) -> int:
+        stmt = (
+            select(func.count(Product.id))
+            .where(Product.is_active.is_(True))
+            .where(Product.stock_quantity <= 0)
+        )
+        return self.db.scalar(stmt) or 0
+
+    def inventory_value(self) -> Decimal:
+        """Retail value of everything currently on the shelf."""
+        stmt = select(
+            func.coalesce(func.sum(Product.stock_quantity * Product.selling_price), 0)
+        ).where(Product.is_active.is_(True))
+        return Decimal(str(self.db.scalar(stmt) or 0)).quantize(Decimal("0.01"))
+
+    def count_by_category(self, *, active_only: bool = True) -> list[tuple[str, int]]:
+        """(category name, product count), ordered by count. Feeds the dashboard chart."""
+        stmt = (
+            select(Category.name, func.count(Product.id))
+            .join(Product, Product.category_id == Category.id)
+            .group_by(Category.name)
+            .order_by(func.count(Product.id).desc(), Category.name)
+        )
+        if active_only:
+            stmt = stmt.where(Product.is_active.is_(True))
+        return list(self.db.execute(stmt).all())
+
+    def recent(self, *, limit: int = 5) -> list[Product]:
+        stmt = (
+            self._base_query().order_by(Product.created_at.desc(), Product.id.desc()).limit(limit)
+        )
+        return list(self.db.scalars(stmt).unique())

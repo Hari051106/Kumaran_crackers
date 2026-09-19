@@ -45,3 +45,9 @@ class CategoryRepository(BaseRepository[Category]):
     def has_products(self, category_id: int) -> bool:
         stmt = select(Product.id).where(Product.category_id == category_id).limit(1)
         return self.db.scalar(stmt) is not None
+
+    def count_all(self, *, active_only: bool = False) -> int:
+        stmt = select(func.count(Category.id))
+        if active_only:
+            stmt = stmt.where(Category.is_active.is_(True))
+        return self.db.scalar(stmt) or 0

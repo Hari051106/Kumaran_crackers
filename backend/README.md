@@ -17,7 +17,7 @@ presentation layers only.
 |---|---|---|
 | **1** | Backend foundation — config, database, auth, roles | ✅ Complete |
 | **2** | Categories, products, product images, catalogue APIs | ✅ Complete |
-| 3 | Admin desktop — login, dashboard, catalogue, inventory | ⬜ Not started |
+| **3** | Admin desktop — login, dashboard, catalogue, inventory | ✅ Complete |
 | 4 | Customer mobile — login, home, catalogue | ⬜ Not started |
 | 5 | Cart, addresses, checkout | ⬜ Not started |
 | 6 | Orders and tracking | ⬜ Not started |
@@ -175,6 +175,17 @@ Base path: `/api/v1`
 | POST | `/categories` | **ADMIN** | Create (slug derived server-side) |
 | PATCH | `/categories/{id}` | **ADMIN** | Update; renaming re-slugs |
 | DELETE | `/categories/{id}` | **ADMIN** | Delete; refused if it holds products |
+
+### Admin — `/admin`
+
+| Method | Path | Access | Purpose |
+|---|---|---|---|
+| GET | `/admin/dashboard` | STAFF | Live catalogue, inventory and customer counts |
+
+The dashboard reports **only figures the system can currently measure**. Sales,
+revenue and order counts arrive with the order system; until then the response
+carries `sales_metrics_available: false` so the desktop client can say so
+plainly rather than rendering a zero that reads like a quiet trading day.
 
 ### Products — `/products`
 

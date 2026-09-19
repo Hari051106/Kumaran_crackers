@@ -8,8 +8,8 @@ a single authoritative backend.
 | Component | Name | Stack | Status |
 |---|---|---|---|
 | 📱 Customer mobile | Kumaran Crackers | Flutter · Riverpod · GoRouter · Dio | ⬜ Planned (M4) |
-| 🖥️ Admin desktop | Kumaran Crackers Admin | Electron · React · Vite · Tailwind | ⬜ Planned (M3) |
-| ⚙️ Backend API | — | FastAPI · SQLAlchemy 2.x · PostgreSQL · Alembic | 🟢 Milestones 1–2 complete |
+| 🖥️ Admin desktop | Kumaran Crackers Admin | Electron · React · Vite · Tailwind | 🟢 Milestone 3 complete |
+| ⚙️ Backend API | — | FastAPI · SQLAlchemy 2.x · PostgreSQL · Alembic | 🟢 Milestones 1–3 complete |
 
 ---
 
@@ -86,8 +86,8 @@ API documentation: http://127.0.0.1:8000/docs
 |---|---|---|
 | **1** | **Backend foundation** — config, database, migrations, auth, roles | ✅ **Complete** |
 | **2** | **Categories, products, product images, catalogue APIs** | ✅ **Complete** |
-| 3 | Admin desktop — login, dashboard, products, categories, inventory | ⬜ Next |
-| 4 | Customer mobile — login, home, categories, products, details | ⬜ |
+| **3** | **Admin desktop — login, dashboard, products, categories, inventory** | ✅ **Complete** |
+| 4 | Customer mobile — login, home, categories, products, details | ⬜ Next |
 | 5 | Cart, addresses, checkout | ⬜ |
 | 6 | Orders — creation, history, tracking, admin management | ⬜ |
 | 7 | Delivery assignment and status | ⬜ |
@@ -120,6 +120,27 @@ API documentation: http://127.0.0.1:8000/docs
 
 **187 tests passing** against a real PostgreSQL database, 95% coverage.
 
+### Milestone 3 delivered
+
+- **Kumaran Crackers Admin** desktop app: Electron + React + Vite + Tailwind
+- Login, dashboard, product management, categories and inventory, all against
+  the live API — no mocked data anywhere in the application
+- Secure Electron architecture: `nodeIntegration: false`,
+  `contextIsolation: true`, `sandbox: true`, and a preload bridge exposing
+  exactly three namespaces
+- Tokens held by the main process and encrypted with the OS keychain, never in
+  `localStorage`
+- The renderer is served over a registered `app://` scheme rather than
+  `file://`, so it has a real origin the API can allowlist
+- A real dashboard stats endpoint that reports only what the system can
+  measure, and says so when it cannot
+- Atomic stock adjustment surfaced in the inventory screen, with the server's
+  guard rails shown to the user rather than swallowed
+
+**224 tests passing**: 201 backend (pytest, real PostgreSQL) and 23 end-to-end
+(Playwright — 11 auditing the real Electron binary, 12 driving the UI against a
+live backend).
+
 ---
 
 ## Regulatory note
@@ -137,6 +158,8 @@ requirements.
 
 - Business rules belong in `backend/app/services/`. Not in routers, not in clients.
 - Money is `Decimal` everywhere and crosses the wire as a string. Never `float`.
+- Clients render what the server computes. No business rule is reimplemented in a client.
+- No mocked data once a real endpoint exists. A screen with nothing to show says so.
 - Every schema change is an Alembic migration. `create_all()` is not a migration strategy.
 - API responses always go through a Pydantic schema — ORM models are never returned directly.
 - `.env` is never committed. `.env.example` documents every variable.

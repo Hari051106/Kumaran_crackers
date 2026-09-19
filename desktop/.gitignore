@@ -1,0 +1,7 @@
+*.local
+dist-electron/
+dist/
+node_modules/
+playwright-report/
+release/
+test-results/

@@ -70,3 +70,13 @@ class UserRepository(BaseRepository[User]):
             stmt.order_by(User.created_at.desc(), User.id.desc()).offset(skip).limit(limit)
         ).unique()
         return list(rows), total
+
+    def count_by_role(self, role_name: str, *, is_active: bool | None = None) -> int:
+        stmt = (
+            select(func.count(User.id))
+            .join(Role, User.role_id == Role.id)
+            .where(Role.name == role_name)
+        )
+        if is_active is not None:
+            stmt = stmt.where(User.is_active.is_(is_active))
+        return self.db.scalar(stmt) or 0
