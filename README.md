@@ -1,0 +1,127 @@
+# Kumaran Crackers
+
+> *Celebrate Every Moment with Kumaran Crackers*
+
+A quick-commerce platform for Kumaran Crackers, built as three components around
+a single authoritative backend.
+
+| Component | Name | Stack | Status |
+|---|---|---|---|
+| 📱 Customer mobile | Kumaran Crackers | Flutter · Riverpod · GoRouter · Dio | ⬜ Planned (M4) |
+| 🖥️ Admin desktop | Kumaran Crackers Admin | Electron · React · Vite · Tailwind | ⬜ Planned (M3) |
+| ⚙️ Backend API | — | FastAPI · SQLAlchemy 2.x · PostgreSQL · Alembic | 🟢 Milestone 1 complete |
+
+---
+
+## Architecture
+
+```
+          ┌─────────────────────────┐
+          │   Customer Mobile App   │
+          │      Flutter / Dart     │
+          └────────────┬────────────┘
+                       │ REST
+                       ▼
+          ┌─────────────────────────┐
+          │     FastAPI Backend     │
+          │                         │
+          │  Auth · Products        │
+          │  Categories · Cart      │
+          │  Orders · Customers     │
+          │  Inventory · Delivery   │
+          │  Reports                │
+          └────────────┬────────────┘
+                       │ SQLAlchemy
+                       ▼
+          ┌─────────────────────────┐
+          │       PostgreSQL        │
+          └─────────────────────────┘
+                       ▲
+                       │ REST
+          ┌────────────┴────────────┐
+          │     Admin Desktop       │
+          │    Electron + React     │
+          └─────────────────────────┘
+```
+
+**The backend is the single source of truth.** Pricing, discounts, stock
+validation, order totals and authorisation are computed server-side only.
+Business logic is never duplicated into the mobile or desktop clients, and
+client-supplied prices and stock figures are never trusted.
+
+---
+
+## Repository layout
+
+```
+.
+├── backend/     FastAPI service + PostgreSQL migrations   (see backend/README.md)
+├── mobile/      Flutter customer application              (Milestone 4)
+└── desktop/     Electron + React admin application        (Milestone 3)
+```
+
+---
+
+## Quick start
+
+Full instructions are in **[`backend/README.md`](backend/README.md)**.
+
+```bash
+cd backend
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements-dev.txt
+cp .env.example .env          # then edit: SECRET_KEY, POSTGRES_PASSWORD, FIRST_ADMIN_PASSWORD
+alembic upgrade head
+python -m app.initial_data
+uvicorn app.main:app --reload
+```
+
+API documentation: http://127.0.0.1:8000/docs
+
+---
+
+## Milestones
+
+| # | Scope | Status |
+|---|---|---|
+| **1** | **Backend foundation** — config, database, migrations, auth, roles | ✅ **Complete** |
+| 2 | Categories, products, product images, catalogue APIs | ⬜ Next |
+| 3 | Admin desktop — login, dashboard, products, categories, inventory | ⬜ |
+| 4 | Customer mobile — login, home, categories, products, details | ⬜ |
+| 5 | Cart, addresses, checkout | ⬜ |
+| 6 | Orders — creation, history, tracking, admin management | ⬜ |
+| 7 | Delivery assignment and status | ⬜ |
+| 8 | Reports and analytics | ⬜ |
+| 9 | Payments | ⬜ |
+| 10 | AI features — recommendations, budget planning, forecasting | ⬜ |
+
+### Milestone 1 delivered
+
+- Modular FastAPI service with a strict router → service → repository → model layering
+- PostgreSQL schema managed by Alembic, with seeded role reference data
+- JWT access + refresh tokens with type separation
+- bcrypt password hashing
+- Role-based access control (ADMIN / STAFF / CUSTOMER) enforced server-side
+- Separate customer and back-office login paths
+- 87 tests passing against a real PostgreSQL database
+
+---
+
+## Regulatory note
+
+This platform sells fireworks, which are age-restricted and subject to local
+sale, storage and delivery regulations. The data model and configuration carry
+extension points for age and eligibility verification (see
+`backend/README.md`), but the applicable rules must be confirmed against local
+law before any production launch. Nothing here is designed to circumvent those
+requirements.
+
+---
+
+## Development conventions
+
+- Business rules belong in `backend/app/services/`. Not in routers, not in clients.
+- Every schema change is an Alembic migration. `create_all()` is not a migration strategy.
+- API responses always go through a Pydantic schema — ORM models are never returned directly.
+- `.env` is never committed. `.env.example` documents every variable.
+- Run tests and linting before committing.
