@@ -78,10 +78,24 @@ class ProfileScreen extends ConsumerWidget {
                   title: 'My orders',
                   subtitle: 'Arrives with the ordering release',
                 ),
-                const _ComingSoonTile(
-                  icon: Icons.location_on_outlined,
-                  title: 'Delivery addresses',
-                  subtitle: 'Arrives with checkout',
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Card(
+                    child: ListTile(
+                      key: const Key('profile-addresses'),
+                      leading: const Icon(Icons.location_on_outlined, color: AppTheme.brand),
+                      title: const Text(
+                        'Delivery addresses',
+                        style: TextStyle(fontWeight: FontWeight.w600, color: AppTheme.ink),
+                      ),
+                      subtitle: const Text(
+                        'Where we send your orders',
+                        style: TextStyle(fontSize: 12.5),
+                      ),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () => context.push('/addresses'),
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 16),
 

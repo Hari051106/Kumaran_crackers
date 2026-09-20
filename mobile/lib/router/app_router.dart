@@ -7,11 +7,15 @@ library;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../features/address/address_screens.dart';
 import '../features/auth/login_screen.dart';
 import '../features/auth/register_screen.dart';
+import '../features/cart/cart_screen.dart';
 import '../features/catalog/product_detail_screen.dart';
 import '../features/catalog/products_screen.dart';
+import '../features/checkout/checkout_screen.dart';
 import '../features/home/home_screen.dart';
+import '../models/address.dart';
 import '../features/profile/profile_screen.dart';
 import '../features/splash/splash_screen.dart';
 
@@ -37,6 +41,27 @@ GoRouter buildRouter({required bool Function() isCheckingSession}) => GoRouter(
               focusSearch: params['focus'] == 'search',
             );
           },
+        ),
+        // ---- Shopping ----
+        GoRoute(path: '/cart', builder: (context, state) => const CartScreen()),
+        GoRoute(path: '/checkout', builder: (context, state) => const CheckoutScreen()),
+        GoRoute(
+          path: '/addresses',
+          builder: (context, state) => AddressListScreen(
+            // `?select=true` turns the list into a picker for checkout.
+            selecting: state.uri.queryParameters['select'] == 'true',
+          ),
+          routes: [
+            GoRoute(
+              path: 'new',
+              builder: (context, state) => const AddressFormScreen(),
+            ),
+            GoRoute(
+              path: ':id/edit',
+              builder: (context, state) =>
+                  AddressFormScreen(existing: state.extra as Address?),
+            ),
+          ],
         ),
         GoRoute(
           path: '/product/:slug',

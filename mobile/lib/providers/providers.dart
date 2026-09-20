@@ -1,6 +1,8 @@
 /// Riverpod wiring for the whole application.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show ChangeNotifier;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -9,9 +11,12 @@ import '../core/token_storage.dart';
 import '../models/category.dart';
 import '../models/paged.dart';
 import '../models/product.dart';
+import '../models/address.dart';
+import '../models/cart.dart';
 import '../models/user.dart';
 import '../repositories/auth_repository.dart';
 import '../repositories/catalog_repository.dart';
+import '../repositories/shopping_repository.dart';
 
 // ---- Infrastructure ---------------------------------------------------------
 /// Broadcasts that a refresh failed and the session is gone.
@@ -46,6 +51,10 @@ final authRepositoryProvider = Provider<AuthRepository>(
 
 final catalogRepositoryProvider = Provider<CatalogRepository>(
   (ref) => CatalogRepository(ref.watch(apiClientProvider)),
+);
+
+final shoppingRepositoryProvider = Provider<ShoppingRepository>(
+  (ref) => ShoppingRepository(ref.watch(apiClientProvider)),
 );
 
 // ---- Authentication ---------------------------------------------------------
@@ -171,3 +180,81 @@ final newArrivalsProvider = FutureProvider<List<Product>>((ref) async {
       );
   return page.items;
 });
+
+
+// ---- Cart -------------------------------------------------------------------
+/// The basket, as priced by the server.
+///
+/// Every mutation returns the recomputed basket, so the notifier simply stores
+/// what came back rather than adjusting totals itself. The app never does
+/// money arithmetic.
+class CartNotifier extends StateNotifier<AsyncValue<Cart>> {
+  CartNotifier(this._repository) : super(const AsyncValue.loading());
+
+  final ShoppingRepository _repository;
+
+  Future<void> load() async {
+    state = const AsyncValue.loading();
+    state = await AsyncValue.guard(_repository.cart);
+  }
+
+  /// Runs a mutation and stores the basket the server returns.
+  ///
+  /// Rethrows so the caller can surface the reason - a sell-out, say - while
+  /// leaving the previous basket on screen.
+  Future<void> _mutate(Future<Cart> Function() action) async {
+    try {
+      final updated = await action();
+      if (mounted) state = AsyncValue.data(updated);
+    } catch (error) {
+      // Refresh anyway: the failure often means the catalogue moved on.
+      if (mounted) unawaited(load());
+      rethrow;
+    }
+  }
+
+  Future<void> add({required int productId, int quantity = 1}) =>
+      _mutate(() => _repository.addItem(productId: productId, quantity: quantity));
+
+  Future<void> setQuantity({required int lineId, required int quantity}) =>
+      _mutate(() => _repository.setQuantity(lineId: lineId, quantity: quantity));
+
+  Future<void> remove(int lineId) => _mutate(() => _repository.removeItem(lineId));
+
+  Future<void> clear() => _mutate(_repository.clear);
+
+  /// Forget the basket when the customer signs out.
+  void reset() {
+    if (mounted) state = const AsyncValue.loading();
+  }
+}
+
+final cartProvider = StateNotifierProvider<CartNotifier, AsyncValue<Cart>>(
+  (ref) => CartNotifier(ref.watch(shoppingRepositoryProvider)),
+);
+
+/// How many units are in the basket, for the badge on the home screen.
+final cartCountProvider = Provider<int>((ref) {
+  return ref.watch(cartProvider).maybeWhen(
+        data: (cart) => cart.itemCount,
+        orElse: () => 0,
+      );
+});
+
+// ---- Addresses --------------------------------------------------------------
+final addressesProvider = FutureProvider<List<Address>>(
+  (ref) => ref.watch(shoppingRepositoryProvider).addresses(),
+);
+
+/// The address checkout should start with.
+final defaultAddressProvider = Provider<AsyncValue<Address?>>((ref) {
+  return ref.watch(addressesProvider).whenData((list) {
+    if (list.isEmpty) return null;
+    return list.firstWhere((a) => a.isDefault, orElse: () => list.first);
+  });
+});
+
+// ---- Checkout ---------------------------------------------------------------
+final checkoutQuoteProvider = FutureProvider.family<CheckoutQuote, int>(
+  (ref, addressId) => ref.watch(shoppingRepositoryProvider).quote(addressId),
+);

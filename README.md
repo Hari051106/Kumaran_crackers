@@ -7,9 +7,9 @@ a single authoritative backend.
 
 | Component | Name | Stack | Status |
 |---|---|---|---|
-| 📱 Customer mobile | Kumaran Crackers | Flutter · Riverpod · GoRouter · Dio | 🟢 Milestone 4 complete |
+| 📱 Customer mobile | Kumaran Crackers | Flutter · Riverpod · GoRouter · Dio | 🟢 Milestones 4–5 complete |
 | 🖥️ Admin desktop | Kumaran Crackers Admin | Electron · React · Vite · Tailwind | 🟢 Milestone 3 complete |
-| ⚙️ Backend API | — | FastAPI · SQLAlchemy 2.x · PostgreSQL · Alembic | 🟢 Milestones 1–3 complete |
+| ⚙️ Backend API | — | FastAPI · SQLAlchemy 2.x · PostgreSQL · Alembic | 🟢 Milestones 1–5 complete |
 
 ---
 
@@ -88,8 +88,8 @@ API documentation: http://127.0.0.1:8000/docs
 | **2** | **Categories, products, product images, catalogue APIs** | ✅ **Complete** |
 | **3** | **Admin desktop — login, dashboard, products, categories, inventory** | ✅ **Complete** |
 | **4** | **Customer mobile — login, home, categories, products, details** | ✅ **Complete** |
-| 5 | Cart, addresses, checkout | ⬜ Next |
-| 6 | Orders — creation, history, tracking, admin management | ⬜ |
+| **5** | **Cart, addresses, checkout** | ✅ **Complete** |
+| 6 | Orders — creation, history, tracking, admin management | ⬜ Next |
 | 7 | Delivery assignment and status | ⬜ |
 | 8 | Reports and analytics | ⬜ |
 | 9 | Payments | ⬜ |
@@ -158,6 +158,23 @@ live backend).
 **264 tests passing** overall: 201 backend, 23 desktop end-to-end, and 40
 Flutter unit and widget tests.
 
+### Milestone 5 delivered
+
+- Basket, delivery addresses and checkout, on both the API and the mobile app
+- A single pricing authority (`backend/app/services/pricing.py`) that the
+  checkout quote uses and order creation will reuse, so a customer cannot be
+  quoted one figure and charged another
+- Subtotal, discount, delivery and total computed entirely server-side in
+  `Decimal`, with **no rounding anywhere** — the lines always sum to the total
+- Cart items store **no price**: totals are recomputed from the live product
+  row on every read, so a price change or a sell-out surfaces immediately
+- Stock validated when an item is added *and* again at checkout, with a
+  per-line message naming exactly what to fix
+- Addresses scoped per customer, with exactly one default enforced by a
+  partial unique index
+
+**367 tests passing**: 291 backend, 23 desktop end-to-end, 53 Flutter.
+
 ---
 
 ## Regulatory note
@@ -175,6 +192,7 @@ requirements.
 
 - Business rules belong in `backend/app/services/`. Not in routers, not in clients.
 - Money is `Decimal` everywhere and crosses the wire as a string. Never `float`.
+- The server prices every basket. A client sends ids and quantities, nothing more.
 - Clients render what the server computes. No business rule is reimplemented in a client.
 - No mocked data once a real endpoint exists. A screen with nothing to show says so.
 - Every schema change is an Alembic migration. `create_all()` is not a migration strategy.

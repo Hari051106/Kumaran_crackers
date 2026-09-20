@@ -89,8 +89,13 @@ double.parse('1874.25')   // never - reintroduces the error the
 
 `core/money.dart` formats and compares decimal strings without ever touching a
 `double`, including `compareMoney`, which stays exact past 2^53 where a double
-silently rounds. There is no client-side arithmetic on money: order totals are
-the server's job.
+silently rounds.
+
+**There is no client-side arithmetic on money at all.** The basket and checkout
+screens display the subtotal, discount, delivery charge and total exactly as the
+server computed them. The app never adds up a line, never applies a discount and
+never decides a delivery charge — so the figure a shopper reads is by
+construction the figure that will be charged.
 
 ---
 
@@ -119,9 +124,10 @@ offers (priced below MRP) and New arrivals — all of which mean something today
 does not model yet; a hardcoded set of images would be exactly the mock data
 this project avoids.
 
-"Add to basket" acknowledges that the basket arrives with the next release
-rather than silently doing nothing. My orders and Delivery addresses say which
-release brings them.
+The basket, delivery addresses and checkout are live. "Place order" on the
+checkout screen acknowledges that order placement arrives with the next
+release — the basket, the chosen address and the exact payable total are all
+ready for it. "My orders" says which release brings it.
 
 ---
 

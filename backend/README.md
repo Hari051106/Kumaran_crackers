@@ -19,7 +19,7 @@ presentation layers only.
 | **2** | Categories, products, product images, catalogue APIs | ✅ Complete |
 | **3** | Admin desktop — login, dashboard, catalogue, inventory | ✅ Complete |
 | 4 | Customer mobile — login, home, catalogue | ⬜ Not started |
-| 5 | Cart, addresses, checkout | ⬜ Not started |
+| **5** | Cart, addresses, checkout | ✅ Complete |
 | 6 | Orders and tracking | ⬜ Not started |
 | 7 | Delivery | ⬜ Not started |
 | 8 | Reports | ⬜ Not started |
@@ -261,6 +261,77 @@ so a deactivated item cannot be discovered by guessing a query parameter.
 
 ---
 
+### Cart — `/cart`
+
+| Method | Path | Access | Purpose |
+|---|---|---|---|
+| GET | `/cart` | Signed in | The basket, priced from the live catalogue |
+| POST | `/cart/items` | Signed in | Add a product, or top up an existing line |
+| PATCH | `/cart/items/{id}` | Signed in | Set an absolute quantity |
+| DELETE | `/cart/items/{id}` | Signed in | Remove a line |
+| DELETE | `/cart` | Signed in | Empty the basket |
+
+### Addresses — `/addresses`
+
+| Method | Path | Access | Purpose |
+|---|---|---|---|
+| GET | `/addresses` | Signed in | My addresses, default first |
+| POST | `/addresses` | Signed in | Save one; the first becomes the default |
+| GET | `/addresses/{id}` | Signed in | One address |
+| PATCH | `/addresses/{id}` | Signed in | Update |
+| POST | `/addresses/{id}/default` | Signed in | Make it the default |
+| DELETE | `/addresses/{id}` | Signed in | Delete; promotes another if it was default |
+
+### Checkout — `/checkout`
+
+| Method | Path | Access | Purpose |
+|---|---|---|---|
+| POST | `/checkout/quote` | Signed in | Authoritative cost for this basket and address |
+
+---
+
+## How a basket is priced
+
+`app/services/pricing.py` is the single authority on what a basket costs. The
+checkout quote calls it, and order creation will call the same function, so a
+customer can never be quoted one figure and charged another.
+
+```
+subtotal      = Σ (mrp           × quantity)   total at MRP
+discount      = Σ ((mrp - price) × quantity)   the saving
+items_total   = subtotal - discount            what the goods cost
+delivery      = 0 when items_total >= FREE_DELIVERY_THRESHOLD, else DELIVERY_CHARGE
+total         = items_total + delivery         amount payable
+```
+
+**No rounding happens anywhere.** Every amount is a `Decimal` from a
+`Numeric(10, 2)` column. A two-decimal price multiplied by an integer is still
+exactly two decimals, and adding such values is exact, so the sum of the lines
+always equals the total — there is no drift to reconcile.
+
+### A cart item stores no price
+
+`cart_items` records a product and a quantity, and nothing about cost. Totals
+are recomputed from the live `products` row on every read, so a price change or
+a sell-out between adding an item and checking out shows up immediately rather
+than as a surprise at the till. Price is only frozen when an order is placed.
+
+### Nothing about money is read from the client
+
+A request carries product ids, quantities and an address id. Anything else it
+sends — `unit_price`, `total`, `discount` — is ignored. There is a test that
+posts a basket claiming an item costs ₹0.01 and asserts the server charges the
+catalogue price.
+
+### Stock is checked twice
+
+Once when an item is added, and again when the basket is read or quoted,
+because the shelf can empty in between. A basket with a problem is still
+priced and returned in full, with a message per offending line, so the shopper
+can see exactly which item to fix rather than facing a bare refusal.
+
+---
+
 ### Error format
 
 Every failure — validation, auth, business rule, or unexpected — uses one shape:
@@ -345,6 +416,16 @@ eight opening categories, all editable by an admin afterwards.
 **product_images** — `id`, `product_id` → `products.id` (`CASCADE`),
 `image_url`, `alt_text`, `display_order`, `is_primary`, timestamps.
 
+**addresses** — `id`, `user_id` → `users.id` (`CASCADE`), recipient name and
+phone, `house_number`, `street`, `area`, `city`, `state`, `pincode`,
+`delivery_instructions`, `is_default`, timestamps.
+
+**carts** — `id`, `user_id` → `users.id` (`CASCADE`, unique: one basket per
+customer), timestamps.
+
+**cart_items** — `id`, `cart_id` → `carts.id` (`CASCADE`), `product_id` →
+`products.id` (`RESTRICT`), `quantity`, timestamps. Deliberately no price.
+
 `RESTRICT` is deliberate: deleting a role that still has users, or a category
 that still has products, must fail rather than cascade-delete live data.
 Product images use `CASCADE` because an image has no meaning without its
@@ -361,6 +442,11 @@ These hold even if a bug slips past the service layer:
 | At most one primary image per product | Partial unique index |
 | A category with products cannot be deleted | FK `ON DELETE RESTRICT` |
 | Deleting a product removes its images | FK `ON DELETE CASCADE` |
+| At most one default address per customer | Partial unique index |
+| A PIN code is six digits, never starting with zero | CHECK constraint |
+| One line per product in a basket | Composite unique constraint |
+| A basket quantity is always positive | CHECK constraint |
+| A product in someone's basket cannot be deleted | FK `ON DELETE RESTRICT` |
 
 ---
 

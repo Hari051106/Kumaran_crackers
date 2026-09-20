@@ -1,9 +1,13 @@
 /// Product detail: gallery, pricing, stock and a quantity selector.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../core/api_exception.dart';
 import '../../core/money.dart';
 import '../../core/theme.dart';
 import '../../models/product.dart';
@@ -261,7 +265,7 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
 }
 
 /// The sticky bar carrying the quantity selector and the basket action.
-class _BuyBar extends StatelessWidget {
+class _BuyBar extends ConsumerStatefulWidget {
   const _BuyBar({
     required this.product,
     required this.quantity,
@@ -273,7 +277,73 @@ class _BuyBar extends StatelessWidget {
   final ValueChanged<int> onQuantityChanged;
 
   @override
+  ConsumerState<_BuyBar> createState() => _BuyBarState();
+}
+
+class _BuyBarState extends ConsumerState<_BuyBar> {
+  bool _adding = false;
+
+  Future<void> _addToBasket() async {
+    // Signed-out shoppers browse freely; a basket needs an account.
+    if (!ref.read(authProvider).isSignedIn) {
+      final signIn = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Sign in to add to your basket'),
+          content: const Text('You can keep browsing without an account.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Not now'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Sign in'),
+            ),
+          ],
+        ),
+      );
+      // Navigation completes when the login route pops; nothing here waits
+      // on it, so the future is explicitly discarded.
+      if ((signIn ?? false) && mounted) unawaited(context.push('/login'));
+      return;
+    }
+
+    setState(() => _adding = true);
+    try {
+      await ref.read(cartProvider.notifier).add(
+            productId: widget.product.id,
+            quantity: widget.quantity,
+          );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('${widget.product.name} added to your basket'),
+            action: SnackBarAction(
+              label: 'View basket',
+              onPressed: () => context.push('/cart'),
+            ),
+          ),
+        );
+    } on ApiException catch (error) {
+      // The server is the authority on stock, so its reason is shown as-is.
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    } finally {
+      if (mounted) setState(() => _adding = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final product = widget.product;
+    final quantity = widget.quantity;
+    final onQuantityChanged = widget.onQuantityChanged;
     final maximum = product.maxSelectableQuantity;
     final available = product.inStock && maximum > 0;
 
@@ -331,17 +401,17 @@ class _BuyBar extends StatelessWidget {
             Expanded(
               child: FilledButton.icon(
                 key: const Key('add-to-cart'),
-                onPressed: available
-                    ? () => ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'The basket arrives with the next release. '
-                              'Browsing and prices are live already.',
-                            ),
-                          ),
-                        )
-                    : null,
-                icon: const Icon(Icons.shopping_bag_outlined, size: 20),
+                onPressed: available && !_adding ? _addToBasket : null,
+                icon: _adding
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.shopping_bag_outlined, size: 20),
                 label: Text(available ? 'Add to basket' : 'Out of stock'),
               ),
             ),

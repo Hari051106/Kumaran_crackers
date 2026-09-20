@@ -52,6 +52,7 @@ class HomeScreen extends ConsumerWidget {
           ],
         ),
         actions: [
+          if (auth.isSignedIn) const _BasketButton(),
           IconButton(
             onPressed: () => context.push('/profile'),
             tooltip: auth.isSignedIn ? 'Your account' : 'Sign in',
@@ -360,4 +361,41 @@ class _SafetyNote extends StatelessWidget {
           ),
         ),
       );
+}
+
+
+/// Basket icon with a live count, shown only to signed-in shoppers.
+class _BasketButton extends ConsumerStatefulWidget {
+  const _BasketButton();
+
+  @override
+  ConsumerState<_BasketButton> createState() => _BasketButtonState();
+}
+
+class _BasketButtonState extends ConsumerState<_BasketButton> {
+  @override
+  void initState() {
+    super.initState();
+    // Load once so the badge is accurate as soon as the home screen appears.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(cartProvider.notifier).load();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final count = ref.watch(cartCountProvider);
+
+    return IconButton(
+      key: const Key('open-basket'),
+      tooltip: 'Your basket',
+      onPressed: () => context.push('/cart'),
+      icon: Badge(
+        isLabelVisible: count > 0,
+        backgroundColor: AppTheme.brand,
+        label: Text('$count'),
+        child: const Icon(Icons.shopping_bag_outlined),
+      ),
+    );
+  }
 }

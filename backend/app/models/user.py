@@ -12,6 +12,8 @@ from app.database import Base, TimestampMixin
 from app.enums import RoleName
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from app.models.address import Address
+    from app.models.cart import Cart
     from app.models.role import Role
 
 
@@ -56,6 +58,18 @@ class User(Base, TimestampMixin):
         Boolean, default=False, server_default=text("false"), nullable=False
     )
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # ---- Shopping -----------------------------------------------------------
+    addresses: Mapped[list[Address]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        order_by="Address.id",
+    )
+    cart: Mapped[Cart | None] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
 
     # ---- Regulatory / eligibility -------------------------------------------
     # Fireworks are age-restricted goods. These columns exist from day one so
