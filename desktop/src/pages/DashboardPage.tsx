@@ -1,9 +1,9 @@
 /**
  * Admin dashboard.
  *
- * Shows only figures the system can actually compute today. Sales, revenue and
- * order counts arrive with the order system; until then the page says so
- * plainly rather than rendering a zero that reads like a real trading day.
+ * Shows only figures the system can actually compute. Sales and order figures
+ * appear once there are orders to measure; before the first one the page says
+ * so plainly rather than rendering a zero that reads like a quiet trading day.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -23,6 +23,8 @@ import { ApiError } from '../api/client';
 import { dashboardApi } from '../api/endpoints';
 import { Badge, ErrorState, LoadingState, Panel } from '../components/ui';
 import { StatCard } from '../components/StatCard';
+import { OrderStatusBadge } from '../components/OrderStatusBadge';
+import { formatDate } from '../lib/dates';
 import { formatCount, formatMoneyShort, formatMoney } from '../lib/money';
 import type { DashboardStats } from '../types/api';
 
@@ -54,6 +56,11 @@ const ICONS = {
   rupee: (
     <svg viewBox="0 0 24 24" fill="none" className="h-[18px] w-[18px]">
       <path d="M6 4h12M6 9h12M15 4c0 5-3.5 5-9 5l9 10" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  bag: (
+    <svg viewBox="0 0 24 24" fill="none" className="h-[18px] w-[18px]">
+      <path d="M6 4h12l1 16H5L6 4zm3 4a3 3 0 006 0" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   ),
 };
@@ -97,11 +104,76 @@ export function DashboardPage() {
   if (error) return <ErrorState message={error} onRetry={load} />;
   if (!stats) return null;
 
-  const { catalogue, inventory, customers, products_per_category: perCategory } = stats;
+  const {
+    catalogue,
+    inventory,
+    customers,
+    products_per_category: perCategory,
+    sales,
+    orders_by_status: byStatus,
+    best_sellers: bestSellers,
+    recent_orders: recentOrders,
+  } = stats;
   const chartHeight = Math.max(200, perCategory.length * 38 + 40);
 
   return (
     <div className="flex flex-col gap-6" data-testid="dashboard">
+      {/* ---- Trading ---- */}
+      {stats.sales_metrics_available ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <StatCard
+            testId="stat-revenue-today"
+            label="Revenue today"
+            value={formatMoneyShort(sales.revenue_today)}
+            sublabel={`${formatCount(sales.orders_today)} ${sales.orders_today === 1 ? 'order' : 'orders'} today`}
+            icon={ICONS.rupee}
+          />
+          <StatCard
+            testId="stat-pending-orders"
+            label="Orders to action"
+            value={formatCount(stats.pending_orders)}
+            sublabel="Placed or confirmed, waiting on us"
+            tone={stats.pending_orders > 0 ? 'warning' : 'neutral'}
+            icon={ICONS.bag}
+          />
+          <StatCard
+            testId="stat-revenue-month"
+            label="Revenue, 30 days"
+            value={formatMoneyShort(sales.revenue_this_month)}
+            sublabel={`${formatCount(sales.orders_this_month)} orders in the last 30 days`}
+            icon={ICONS.rupee}
+          />
+          <StatCard
+            testId="stat-average-order"
+            label="Average order"
+            value={formatMoney(sales.average_order_value)}
+            sublabel={`Across ${formatCount(sales.total_orders)} orders, ${formatMoneyShort(sales.lifetime_revenue)} lifetime`}
+            icon={ICONS.rupee}
+          />
+        </div>
+      ) : (
+        <div
+          data-testid="sales-unavailable"
+          className="flex items-start gap-3 rounded-xl border border-shell-200 bg-shell-100/60 px-5 py-4"
+        >
+          <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white text-shell-500">
+            <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+              <path fillRule="evenodd" d="M18 10A8 8 0 112 10a8 8 0 0116 0zm-9-3.75A.75.75 0 119 4.75a.75.75 0 010 1.5zM10 9a.75.75 0 01.75.75v4.5a.75.75 0 01-1.5 0v-4.5A.75.75 0 0110 9z" clipRule="evenodd" />
+            </svg>
+          </span>
+          <div>
+            <p className="text-sm font-semibold text-shell-800">
+              No orders have been placed yet
+            </p>
+            <p className="mt-0.5 text-sm text-shell-600">
+              Revenue, pending orders and best sellers appear here as soon as the first order
+              arrives. Nothing is shown rather than a zero that could be mistaken for a quiet
+              trading day.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* ---- Headline figures ---- */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
@@ -233,6 +305,94 @@ export function DashboardPage() {
         </div>
       </div>
 
+      {/* ---- Where the orders are ---- */}
+      {stats.sales_metrics_available && (
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+          <Panel
+            title="Orders by status"
+            description="Every stage is listed, including the empty ones."
+            action={
+              <Link to="/orders" className="text-sm font-semibold text-brand-600 hover:text-brand-700">
+                Manage
+              </Link>
+            }
+          >
+            <ul className="divide-y divide-shell-100" data-testid="orders-by-status">
+              {byStatus.map((row) => (
+                <li key={row.status} className="flex items-center justify-between px-5 py-2.5">
+                  <OrderStatusBadge status={row.status} label={row.label} />
+                  <span className="tabular text-sm font-semibold text-shell-900">
+                    {formatCount(row.count)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </Panel>
+
+          <Panel title="Best sellers" description="By units sold, cancelled orders excluded.">
+            {bestSellers.length === 0 ? (
+              <div className="px-5 py-10 text-center text-sm text-shell-500">
+                Nothing has sold yet.
+              </div>
+            ) : (
+              <ol className="divide-y divide-shell-100" data-testid="best-sellers">
+                {bestSellers.map((row, index) => (
+                  <li
+                    key={row.product_name}
+                    className="flex items-center justify-between gap-3 px-5 py-2.5"
+                  >
+                    <span className="flex min-w-0 items-center gap-3">
+                      <span className="tabular w-4 shrink-0 text-xs font-semibold text-shell-400">
+                        {index + 1}
+                      </span>
+                      <span className="truncate text-sm text-shell-800">{row.product_name}</span>
+                    </span>
+                    <span className="shrink-0 text-right">
+                      <span className="tabular block text-sm font-semibold text-shell-900">
+                        {formatCount(row.units_sold)} sold
+                      </span>
+                      <span className="tabular block text-xs text-shell-500">
+                        {formatMoney(row.revenue)}
+                      </span>
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </Panel>
+
+          <Panel
+            title="Latest orders"
+            action={
+              <Link to="/orders" className="text-sm font-semibold text-brand-600 hover:text-brand-700">
+                View all
+              </Link>
+            }
+          >
+            <ul className="divide-y divide-shell-100" data-testid="recent-orders">
+              {recentOrders.map((order) => (
+                <li key={order.order_number} className="px-5 py-2.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="tabular text-sm font-semibold text-shell-900">
+                      {order.order_number}
+                    </span>
+                    <span className="tabular text-sm text-shell-900">
+                      {formatMoney(order.total)}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex items-center justify-between gap-3">
+                    <OrderStatusBadge status={order.status} label={order.status_label} />
+                    <span className="tabular text-xs text-shell-500">
+                      {formatDate(order.placed_at)}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </Panel>
+        </div>
+      )}
+
       {/* ---- Recently added ---- */}
       <Panel
         title="Recently added products"
@@ -279,29 +439,6 @@ export function DashboardPage() {
         )}
       </Panel>
 
-      {/* ---- Honest about what does not exist yet ---- */}
-      {!stats.sales_metrics_available && (
-        <div
-          data-testid="sales-unavailable"
-          className="flex items-start gap-3 rounded-xl border border-shell-200 bg-shell-100/60 px-5 py-4"
-        >
-          <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white text-shell-500">
-            <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-              <path fillRule="evenodd" d="M18 10A8 8 0 112 10a8 8 0 0116 0zm-9-3.75A.75.75 0 119 4.75a.75.75 0 010 1.5zM10 9a.75.75 0 01.75.75v4.5a.75.75 0 01-1.5 0v-4.5A.75.75 0 0110 9z" clipRule="evenodd" />
-            </svg>
-          </span>
-          <div>
-            <p className="text-sm font-semibold text-shell-800">
-              Sales and order figures are not available yet
-            </p>
-            <p className="mt-0.5 text-sm text-shell-600">
-              Today&rsquo;s sales, pending orders and revenue appear once the order system is in
-              place. Nothing is shown here rather than a zero that could be mistaken for a quiet
-              trading day.
-            </p>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

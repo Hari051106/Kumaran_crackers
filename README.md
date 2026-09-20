@@ -57,7 +57,7 @@ client-supplied prices and stock figures are never trusted.
 .
 ├── backend/     FastAPI service + PostgreSQL migrations   (see backend/README.md)
 ├── mobile/      Flutter customer application              (see mobile/README.md)
-└── desktop/     Electron + React admin application        (Milestone 3)
+└── desktop/     Electron + React admin application        (see desktop/README.md)
 ```
 
 ---
@@ -89,8 +89,8 @@ API documentation: http://127.0.0.1:8000/docs
 | **3** | **Admin desktop — login, dashboard, products, categories, inventory** | ✅ **Complete** |
 | **4** | **Customer mobile — login, home, categories, products, details** | ✅ **Complete** |
 | **5** | **Cart, addresses, checkout** | ✅ **Complete** |
-| 6 | Orders — creation, history, tracking, admin management | ⬜ Next |
-| 7 | Delivery assignment and status | ⬜ |
+| **6** | **Orders — creation, history, tracking, admin management** | ✅ **Complete** |
+| 7 | Delivery assignment and status | ⬜ Next |
 | 8 | Reports and analytics | ⬜ |
 | 9 | Payments | ⬜ |
 | 10 | AI features — recommendations, budget planning, forecasting | ⬜ |
@@ -173,7 +173,33 @@ Flutter unit and widget tests.
 - Addresses scoped per customer, with exactly one default enforced by a
   partial unique index
 
-**367 tests passing**: 291 backend, 23 desktop end-to-end, 53 Flutter.
+---
+
+### Milestone 6 delivered
+
+- Placing an order is one transaction: the order, its lines, the stock
+  reservation, the audit entry and emptying the basket all commit together or
+  none of them do
+- Stock moves through a single atomic `UPDATE … WHERE stock >= :qty RETURNING`,
+  so two customers checking out the last unit cannot both succeed
+- Every checkout rule is re-run at placement and the price is recomputed from
+  the same pricing authority — the client never sends an amount
+- An order is an immutable record: prices, product names, SKUs and the
+  delivery address are snapshotted, and database CHECK constraints hold the
+  invoice arithmetic (`items_total = subtotal − discount`,
+  `total = items_total + delivery_charge`)
+- A status workflow that only moves forwards, one stage at a time, with an
+  append-only audit trail recording who made each change
+- Customers can cancel until packing begins; cancelling returns the stock and
+  never counts as a sale
+- Mobile: order history, a tracking timeline, and the checkout button now
+  actually places the order
+- Admin desktop: order list with search and status filter, full order detail,
+  status updates, and customer records with real order counts and spend
+- The dashboard's sales figures are live — and still say plainly when there is
+  nothing to measure rather than showing a misleading zero
+
+**458 tests passing**: 362 backend, 28 desktop end-to-end, 68 Flutter.
 
 ---
 

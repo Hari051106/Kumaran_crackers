@@ -11,9 +11,11 @@ import { ToastProvider } from './components/Toast';
 import { LoadingState } from './components/ui';
 import { AppShell } from './layouts/AppShell';
 import { CategoriesPage } from './pages/CategoriesPage';
+import { CustomersPage } from './pages/CustomersPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { InventoryPage } from './pages/InventoryPage';
 import { LoginPage } from './pages/LoginPage';
+import { OrdersPage } from './pages/OrdersPage';
 import { PlaceholderPage } from './pages/PlaceholderPage';
 import { ProductsPage } from './pages/ProductsPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -38,38 +40,8 @@ function AuthenticatedRoutes() {
         <Route path="/products" element={<ProductsPage />} />
         <Route path="/categories" element={<CategoriesPage />} />
         <Route path="/inventory" element={<InventoryPage />} />
-        <Route
-          path="/orders"
-          element={
-            <PlaceholderPage
-              title="Order management"
-              milestone="Milestone 6"
-              summary="Incoming orders, their contents and status changes will be managed here."
-              planned={[
-                'Order list with customer, date, amount and status',
-                'Full order detail: items, address, totals and delivery charge',
-                'Status updates from Placed through to Delivered',
-                'An audit trail of every status change',
-              ]}
-            />
-          }
-        />
-        <Route
-          path="/customers"
-          element={
-            <PlaceholderPage
-              title="Customer management"
-              milestone="Milestone 6"
-              summary="Customer accounts exist already; this screen gains meaning once there are orders to show against them."
-              planned={[
-                'Name, phone, email and registration date',
-                'Order count and total spend per customer',
-                'Full order history for a customer',
-                'Account status controls',
-              ]}
-            />
-          }
-        />
+        <Route path="/orders" element={<OrdersPage />} />
+        <Route path="/customers" element={<CustomersPage />} />
         <Route
           path="/delivery"
           element={

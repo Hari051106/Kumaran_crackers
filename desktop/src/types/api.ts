@@ -126,6 +126,122 @@ export interface Page<T> {
   meta: PaginationMeta;
 }
 
+// ---- Orders -----------------------------------------------------------------
+export const ORDER_STATUSES = [
+  'PLACED',
+  'CONFIRMED',
+  'PACKING',
+  'OUT_FOR_DELIVERY',
+  'DELIVERED',
+  'CANCELLED',
+] as const;
+
+export type OrderStatus = (typeof ORDER_STATUSES)[number];
+
+export interface OrderItem {
+  id: number;
+  product_id: number;
+  product_name: string;
+  product_sku: string;
+  product_image_url: string | null;
+  quantity: number;
+  /** Decimal string. */
+  unit_mrp: string;
+  /** Decimal string. */
+  unit_price: string;
+  /** Decimal string. */
+  line_total: string;
+  /** Decimal string. */
+  line_discount: string;
+}
+
+export interface OrderStatusEvent {
+  id: number;
+  from_status: OrderStatus | null;
+  to_status: OrderStatus;
+  changed_by_name: string | null;
+  note: string | null;
+  created_at: string;
+}
+
+export interface DeliveryAddressSnapshot {
+  full_name: string;
+  phone: string;
+  house_number: string;
+  street: string;
+  area: string;
+  city: string;
+  state: string;
+  pincode: string;
+  instructions: string | null;
+  single_line: string;
+}
+
+export interface OrderTotals {
+  /** Decimal strings throughout. */
+  subtotal: string;
+  discount: string;
+  items_total: string;
+  delivery_charge: string;
+  total: string;
+  currency: string;
+}
+
+export interface TimelineStep {
+  status: OrderStatus;
+  label: string;
+  reached: boolean;
+  is_current: boolean;
+  reached_at: string | null;
+}
+
+export interface OrderSummary {
+  order_number: string;
+  status: OrderStatus;
+  status_label: string;
+  /** Decimal string. */
+  total: string;
+  currency: string;
+  item_count: number;
+  placed_at: string;
+}
+
+export interface AdminOrderSummary extends OrderSummary {
+  customer_name: string;
+  customer_email: string;
+  customer_phone: string | null;
+}
+
+export interface AdminOrderDetail extends AdminOrderSummary {
+  items: OrderItem[];
+  totals: OrderTotals;
+  delivery_address: DeliveryAddressSnapshot;
+  timeline: TimelineStep[];
+  status_history: OrderStatusEvent[];
+  is_cancellable_by_customer: boolean;
+  delivered_at: string | null;
+  cancelled_at: string | null;
+  cancellation_reason: string | null;
+  /** The moves this order may still make. The server re-checks every one. */
+  allowed_transitions: OrderStatus[];
+}
+
+// ---- Customers ---------------------------------------------------------------
+export interface CustomerSummary {
+  id: number;
+  email: string;
+  full_name: string;
+  phone: string | null;
+  is_active: boolean;
+  is_verified: boolean;
+  created_at: string;
+  last_login_at: string | null;
+  order_count: number;
+  /** Decimal string. */
+  total_spent: string;
+  last_order_at: string | null;
+}
+
 export interface DashboardStats {
   catalogue: {
     total_products: number;
@@ -146,7 +262,25 @@ export interface DashboardStats {
   };
   products_per_category: { category: string; product_count: number }[];
   recent_products: ProductListItem[];
-  /** False until the order system exists. No sales figures are invented. */
+
+  sales: {
+    orders_today: number;
+    /** Decimal strings throughout. */
+    revenue_today: string;
+    orders_this_week: number;
+    revenue_this_week: string;
+    orders_this_month: number;
+    revenue_this_month: string;
+    total_orders: number;
+    lifetime_revenue: string;
+    average_order_value: string;
+  };
+  orders_by_status: { status: OrderStatus; label: string; count: number }[];
+  best_sellers: { product_name: string; units_sold: number; revenue: string }[];
+  recent_orders: OrderSummary[];
+  /** Placed or confirmed: waiting on somebody. */
+  pending_orders: number;
+  /** False until the first order exists. No sales figures are invented. */
   sales_metrics_available: boolean;
 }
 

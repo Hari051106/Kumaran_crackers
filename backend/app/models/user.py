@@ -14,6 +14,7 @@ from app.enums import RoleName
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from app.models.address import Address
     from app.models.cart import Cart
+    from app.models.order import Order
     from app.models.role import Role
 
 
@@ -69,6 +70,12 @@ class User(Base, TimestampMixin):
         back_populates="user",
         cascade="all, delete-orphan",
         uselist=False,
+    )
+    # No cascade: orders outlive an account deletion attempt, and the RESTRICT
+    # on orders.user_id makes that explicit rather than silently losing them.
+    orders: Mapped[list[Order]] = relationship(
+        back_populates="user",
+        order_by="Order.id.desc()",
     )
 
     # ---- Regulatory / eligibility -------------------------------------------

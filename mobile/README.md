@@ -58,6 +58,7 @@ lib/
 │   ├── api_client.dart    Dio + bearer token + one-shot refresh
 │   ├── api_exception.dart One failure type the UI can render
 │   ├── config.dart        Build-time configuration
+│   ├── dates.dart         Date and time formatting for order screens
 │   ├── money.dart         Decimal-string formatting - no floats
 │   ├── theme.dart         Material 3 theme
 │   └── token_storage.dart Keystore / Keychain via flutter_secure_storage
@@ -65,8 +66,10 @@ lib/
 ├── repositories/          One method per endpoint
 ├── providers/             Riverpod wiring
 ├── router/                GoRouter routes
-├── features/              Splash, auth, home, catalogue, profile
-└── widgets/               Product card, stock chip, state views
+├── features/              Splash, auth, home, catalogue, cart, checkout,
+│                          addresses, orders, profile
+└── widgets/               Product card, stock chip, order status chip,
+                           state views
 ```
 
 **Packages:** `flutter_riverpod` (state), `go_router` (navigation), `dio`
@@ -124,10 +127,20 @@ offers (priced below MRP) and New arrivals — all of which mean something today
 does not model yet; a hardcoded set of images would be exactly the mock data
 this project avoids.
 
-The basket, delivery addresses and checkout are live. "Place order" on the
-checkout screen acknowledges that order placement arrives with the next
-release — the basket, the chosen address and the exact payable total are all
-ready for it. "My orders" says which release brings it.
+The basket, delivery addresses, checkout and ordering are all live. "Place
+order" places a real order: the server re-prices the basket, takes the stock
+and empties the cart in one transaction, and the app lands on the new order's
+tracking screen.
+
+**Order progress is never guessed.** The tracking timeline fills a stage only
+when the server says it was reached, and each stage shows the timestamp it
+happened. A status the app does not recognise is rendered using the server's
+own label rather than being mapped to the nearest one it knows — a wrong
+status would tell the shopper something untrue about their order.
+
+**Whether an order can be cancelled is the server's answer**
+(`is_cancellable_by_customer`), not a rule re-implemented here. The button
+appears only when the server says it applies, and the server re-checks anyway.
 
 ---
 
@@ -141,13 +154,15 @@ flutter test        # unit and widget tests
 The suite covers money formatting exactly (including precision a `double`
 cannot hold), JSON parsing that keeps money as strings, the quantity selector
 capping at available stock, an unknown stock status failing closed to
-out-of-stock, form validation mirroring the server's password and phone rules,
-and stock state always being conveyed by words and an icon rather than colour
-alone.
+out-of-stock, an unknown *order* status falling back to the server's label
+rather than being guessed, date formatting at both ends of the 12-hour clock,
+form validation mirroring the server's password and phone rules, and status
+state always being conveyed by words and an icon rather than colour alone.
 
 ### Driving the real app
 
 The web build served over HTTP and driven with Chromium exercises the real
 widgets against the live API. That flow covers the home screen's four queries,
-debounced search, filters, product detail by slug, and registration writing a
-new customer to PostgreSQL.
+debounced search, filters, product detail by slug, registration writing a new
+customer to PostgreSQL, and checkout placing a real order that lands on the
+tracking screen with the basket emptied and the stock moved.

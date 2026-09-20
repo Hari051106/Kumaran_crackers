@@ -15,6 +15,8 @@ import '../features/catalog/product_detail_screen.dart';
 import '../features/catalog/products_screen.dart';
 import '../features/checkout/checkout_screen.dart';
 import '../features/home/home_screen.dart';
+import '../features/orders/order_detail_screen.dart';
+import '../features/orders/orders_screen.dart';
 import '../models/address.dart';
 import '../features/profile/profile_screen.dart';
 import '../features/splash/splash_screen.dart';
@@ -60,6 +62,22 @@ GoRouter buildRouter({required bool Function() isCheckingSession}) => GoRouter(
               path: ':id/edit',
               builder: (context, state) =>
                   AddressFormScreen(existing: state.extra as Address?),
+            ),
+          ],
+        ),
+        // ---- Orders ----
+        GoRoute(
+          path: '/orders',
+          builder: (context, state) => const OrdersScreen(),
+          routes: [
+            GoRoute(
+              path: ':orderNumber',
+              builder: (context, state) => OrderDetailScreen(
+                orderNumber: state.pathParameters['orderNumber']!,
+                // Set only when arriving straight from checkout, so a shared
+                // or bookmarked link never shows a false confirmation.
+                justPlaced: state.extra == true,
+              ),
             ),
           ],
         ),

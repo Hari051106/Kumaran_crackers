@@ -72,11 +72,24 @@ class ProfileScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 16),
 
-                // Named honestly rather than shown as empty, working screens.
-                const _ComingSoonTile(
-                  icon: Icons.receipt_long_outlined,
-                  title: 'My orders',
-                  subtitle: 'Arrives with the ordering release',
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Card(
+                    child: ListTile(
+                      key: const Key('profile-orders'),
+                      leading: const Icon(Icons.receipt_long_outlined, color: AppTheme.brand),
+                      title: const Text(
+                        'My orders',
+                        style: TextStyle(fontWeight: FontWeight.w600, color: AppTheme.ink),
+                      ),
+                      subtitle: const Text(
+                        'Track and manage what you have ordered',
+                        style: TextStyle(fontSize: 12.5),
+                      ),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () => context.push('/orders'),
+                    ),
+                  ),
                 ),
                 Padding(
                   padding: const EdgeInsets.only(bottom: 10),
@@ -157,38 +170,6 @@ class _SignedOut extends StatelessWidget {
                 child: FilledButton(onPressed: onSignIn, child: const Text('Sign in')),
               ),
             ],
-          ),
-        ),
-      );
-}
-
-class _ComingSoonTile extends StatelessWidget {
-  const _ComingSoonTile({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: 10),
-        child: Card(
-          child: ListTile(
-            leading: Icon(icon, color: AppTheme.muted),
-            title: Text(
-              title,
-              style: const TextStyle(fontWeight: FontWeight.w600, color: AppTheme.ink),
-            ),
-            subtitle: Text(subtitle, style: const TextStyle(fontSize: 12.5)),
-            trailing: const Chip(
-              label: Text('Soon', style: TextStyle(fontSize: 11)),
-              visualDensity: VisualDensity.compact,
-              padding: EdgeInsets.zero,
-            ),
           ),
         ),
       );

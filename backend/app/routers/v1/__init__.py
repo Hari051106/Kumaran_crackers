@@ -9,6 +9,7 @@ from app.routers.v1 import (
     cart,
     categories,
     checkout,
+    orders,
     products,
     users,
 )
@@ -20,6 +21,7 @@ api_router.include_router(auth.router)
 api_router.include_router(cart.router)
 api_router.include_router(categories.router)
 api_router.include_router(checkout.router)
+api_router.include_router(orders.router)
 api_router.include_router(products.router)
 api_router.include_router(users.router)
 

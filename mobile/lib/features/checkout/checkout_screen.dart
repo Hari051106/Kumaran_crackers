@@ -6,10 +6,13 @@
 /// with, so the customer cannot be quoted one amount and charged another.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/api_exception.dart';
 import '../../core/money.dart';
 import '../../core/theme.dart';
 import '../../models/address.dart';
@@ -359,56 +362,94 @@ class _AgeNotice extends StatelessWidget {
       );
 }
 
-class _PlaceOrderBar extends StatelessWidget {
+class _PlaceOrderBar extends ConsumerStatefulWidget {
   const _PlaceOrderBar({required this.quote});
 
   final CheckoutQuote quote;
 
   @override
-  Widget build(BuildContext context) => SafeArea(
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            border: Border(top: BorderSide(color: AppTheme.hairline)),
-          ),
-          child: Row(
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text('Payable', style: TextStyle(fontSize: 12, color: AppTheme.muted)),
-                  Text(
-                    formatMoney(quote.cart.totals.total),
-                    key: const Key('payable-total'),
-                    style: const TextStyle(
-                      fontSize: 19,
-                      fontWeight: FontWeight.w800,
-                      color: AppTheme.ink,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: FilledButton(
-                  key: const Key('place-order'),
-                  onPressed: quote.canPlaceOrder
-                      ? () => ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Placing orders arrives with the next release. Your basket, '
-                                'address and this exact total are ready for it.',
-                              ),
-                            ),
-                          )
-                      : null,
-                  child: const Text('Place order'),
-                ),
-              ),
-            ],
-          ),
+  ConsumerState<_PlaceOrderBar> createState() => _PlaceOrderBarState();
+}
+
+class _PlaceOrderBarState extends ConsumerState<_PlaceOrderBar> {
+  bool _placing = false;
+
+  Future<void> _placeOrder() async {
+    setState(() => _placing = true);
+    try {
+      final order = await ref
+          .read(orderRepositoryProvider)
+          .place(widget.quote.deliveryAddress.id);
+      if (!mounted) return;
+
+      // The basket became the order, and the history has a new row.
+      ref
+        ..invalidate(myOrdersProvider)
+        ..invalidate(checkoutQuoteProvider);
+      unawaited(ref.read(cartProvider.notifier).load());
+
+      // Replace checkout in the stack: going "back" to it would show a quote
+      // for a basket that no longer exists.
+      context.pushReplacement('/orders/${order.orderNumber}', extra: true);
+    } on ApiException catch (error) {
+      // The server refuses for real reasons - a sell-out between the quote and
+      // now, most often. Show its wording and refresh what is on screen.
+      if (!mounted) return;
+      ref.invalidate(checkoutQuoteProvider(widget.quote.deliveryAddress.id));
+      unawaited(ref.read(cartProvider.notifier).load());
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(error.message)));
+    } finally {
+      if (mounted) setState(() => _placing = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final quote = widget.quote;
+    return SafeArea(
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          border: Border(top: BorderSide(color: AppTheme.hairline)),
         ),
-      );
+        child: Row(
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Payable', style: TextStyle(fontSize: 12, color: AppTheme.muted)),
+                Text(
+                  formatMoney(quote.cart.totals.total),
+                  key: const Key('payable-total'),
+                  style: const TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.ink,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: FilledButton(
+                key: const Key('place-order'),
+                onPressed: quote.canPlaceOrder && !_placing ? _placeOrder : null,
+                child: _placing
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
+                      )
+                    : const Text('Place order'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

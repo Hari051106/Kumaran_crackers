@@ -41,7 +41,7 @@ from sqlalchemy.orm import Session
 from alembic import command
 from alembic.config import Config
 from app.database import engine, get_db
-from app.enums import RoleName
+from app.enums import ORDER_TIMELINE, OrderStatus, RoleName
 from app.main import create_app
 from app.models.category import Category
 from app.models.product import Product, ProductImage
@@ -263,3 +263,89 @@ def category(db: Session) -> Category:
 @pytest.fixture
 def product(db: Session, category: Category) -> Product:
     return make_product(db, category=category, name="Electric Sparkler 10cm")
+
+
+# ---- Order helpers ----------------------------------------------------------
+# Shared by the order tests and the dashboard tests, both of which need real
+# orders placed through the real endpoints rather than rows inserted by hand.
+ORDERS_URL = "/api/v1/orders"
+ADMIN_ORDERS_URL = "/api/v1/admin/orders"
+ADMIN_CUSTOMERS_URL = "/api/v1/admin/customers"
+CART_ITEMS_URL = "/api/v1/cart/items"
+ADDRESSES_URL = "/api/v1/addresses"
+
+
+def address_payload(**overrides: object) -> dict:
+    body = {
+        "full_name": "Priya Selvam",
+        "phone": "9876543210",
+        "house_number": "12A",
+        "street": "Anna Salai",
+        "area": "T Nagar",
+        "city": "Chennai",
+        "state": "Tamil Nadu",
+        "pincode": "600017",
+        "delivery_instructions": "Ring the bell twice",
+    }
+    body.update(overrides)
+    return body
+
+
+def ready_to_order(
+    client: TestClient,
+    headers: dict[str, str],
+    product: Product,
+    quantity: int = 2,
+) -> int:
+    """Put an item in the basket and save an address. Returns the address id."""
+    client.post(
+        CART_ITEMS_URL,
+        json={"product_id": product.id, "quantity": quantity},
+        headers=headers,
+    )
+    address = client.post(ADDRESSES_URL, json=address_payload(), headers=headers).json()
+    return address["id"]
+
+
+def place(client: TestClient, headers: dict[str, str], address_id: int):
+    return client.post(ORDERS_URL, json={"address_id": address_id}, headers=headers)
+
+
+def order_now(
+    client: TestClient,
+    headers: dict[str, str],
+    product: Product,
+    quantity: int = 2,
+) -> str:
+    """Basket, address and order in one step. Returns the order number."""
+    address_id = ready_to_order(client, headers, product, quantity=quantity)
+    response = place(client, headers, address_id)
+    assert response.status_code == 201, response.text
+    return response.json()["order_number"]
+
+
+def move(
+    client: TestClient,
+    headers: dict[str, str],
+    order_number: str,
+    new_status: OrderStatus,
+    note: str | None = None,
+):
+    """Ask the back office to advance an order."""
+    return client.post(
+        f"{ADMIN_ORDERS_URL}/{order_number}/status",
+        json={"status": new_status.value, "note": note},
+        headers=headers,
+    )
+
+
+def advance_to(
+    client: TestClient,
+    headers: dict[str, str],
+    order_number: str,
+    target: OrderStatus,
+) -> None:
+    """Walk an order along the happy path until it reaches `target`."""
+    for step in ORDER_TIMELINE[1 : ORDER_TIMELINE.index(target) + 1]:
+        response = move(client, headers, order_number, step)
+        assert response.status_code == 200, response.text

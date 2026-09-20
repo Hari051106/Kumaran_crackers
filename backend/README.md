@@ -18,9 +18,9 @@ presentation layers only.
 | **1** | Backend foundation — config, database, auth, roles | ✅ Complete |
 | **2** | Categories, products, product images, catalogue APIs | ✅ Complete |
 | **3** | Admin desktop — login, dashboard, catalogue, inventory | ✅ Complete |
-| 4 | Customer mobile — login, home, catalogue | ⬜ Not started |
+| **4** | Customer mobile — login, home, catalogue | ✅ Complete |
 | **5** | Cart, addresses, checkout | ✅ Complete |
-| 6 | Orders and tracking | ⬜ Not started |
+| **6** | Orders, tracking and back-office order management | ✅ Complete |
 | 7 | Delivery | ⬜ Not started |
 | 8 | Reports | ⬜ Not started |
 | 9 | Payments | ⬜ Not started |
@@ -58,7 +58,8 @@ backend/
 │   ├── main.py            FastAPI app factory, CORS, exception handlers
 │   ├── config.py          Environment-driven settings (pydantic-settings)
 │   ├── database.py        Engine, session factory, declarative Base
-│   ├── enums.py           Shared domain vocabulary (roles, tokens, stock, sort)
+│   ├── enums.py           Shared vocabulary: roles, tokens, stock, sort,
+│   │                      order statuses and the transitions between them
 │   ├── initial_data.py    One-off first-admin bootstrap
 │   ├── models/            SQLAlchemy 2.x ORM models
 │   ├── schemas/           Pydantic request/response models
@@ -180,12 +181,24 @@ Base path: `/api/v1`
 
 | Method | Path | Access | Purpose |
 |---|---|---|---|
-| GET | `/admin/dashboard` | STAFF | Live catalogue, inventory and customer counts |
+| GET | `/admin/dashboard` | STAFF | Catalogue, inventory, customer and trading figures |
+| GET | `/admin/orders` | STAFF | All orders, searchable and filterable by status |
+| GET | `/admin/orders/{order_number}` | STAFF | Full order, audit trail and remaining moves |
+| POST | `/admin/orders/{order_number}/status` | STAFF | Advance an order through the workflow |
+| GET | `/admin/customers` | STAFF | Customers with their real order count and spend |
 
-The dashboard reports **only figures the system can currently measure**. Sales,
-revenue and order counts arrive with the order system; until then the response
-carries `sales_metrics_available: false` so the desktop client can say so
-plainly rather than rendering a zero that reads like a quiet trading day.
+The dashboard reports **only figures the system can actually measure**. Before
+the first order exists it carries `sales_metrics_available: false` so the
+desktop client can say so plainly rather than rendering a zero that reads like
+a quiet trading day. Cancelled orders are excluded from every revenue figure,
+from best sellers, and from customer spend — a withdrawn order was never a
+sale — but they still appear in `orders_by_status`, because the operator needs
+to see them.
+
+`/admin/customers` is staff-visible and read-only: whoever is working an order
+needs to be able to look the customer up, and it exposes nothing the order
+screens do not already show. Changing an account still requires ADMIN through
+`/users`.
 
 ### Products — `/products`
 
@@ -288,12 +301,24 @@ so a deactivated item cannot be discovered by guessing a query parameter.
 |---|---|---|---|
 | POST | `/checkout/quote` | Signed in | Authoritative cost for this basket and address |
 
+### Orders — `/orders`
+
+| Method | Path | Access | Purpose |
+|---|---|---|---|
+| POST | `/orders` | Signed in | Turn the basket into an order |
+| GET | `/orders` | Signed in | My order history, newest first |
+| GET | `/orders/{order_number}` | Signed in | One of my orders, with its tracking timeline |
+| POST | `/orders/{order_number}/cancel` | Signed in | Withdraw an order before it is packed |
+
+The request body for `POST /orders` is an address id and nothing else. The
+basket is already on the server and the price is the server's to decide.
+
 ---
 
 ## How a basket is priced
 
 `app/services/pricing.py` is the single authority on what a basket costs. The
-checkout quote calls it, and order creation will call the same function, so a
+checkout quote calls it, and order creation calls the same function, so a
 customer can never be quoted one figure and charged another.
 
 ```
@@ -329,6 +354,64 @@ Once when an item is added, and again when the basket is read or quoted,
 because the shelf can empty in between. A basket with a problem is still
 priced and returned in full, with a message per offending line, so the shopper
 can see exactly which item to fix rather than facing a bare refusal.
+
+---
+
+## How an order is placed
+
+`POST /orders` is the one operation in this system that must be all-or-nothing.
+It writes an order and its lines, takes stock off the shelf, records the first
+audit entry, and empties the basket. `app/services/order_service.py` does all
+of that inside a **single transaction with one commit at the end**, so there is
+no half-written order and no stock taken for an order that was never created.
+
+Before anything is written, every checkout rule is re-run and the basket is
+re-priced. The quote the customer saw may be seconds old, and the shelf can
+empty in that time.
+
+### Stock moves atomically
+
+```python
+UPDATE products
+   SET stock_quantity = stock_quantity - :qty,
+       sold_quantity  = sold_quantity  + :qty
+ WHERE id = :id AND stock_quantity >= :qty
+RETURNING stock_quantity
+```
+
+The guard and the arithmetic are in the same statement, so two customers
+checking out the last unit cannot both succeed: one matches the row, the other
+matches nothing and gets `None`. There is no read-modify-write window to lose.
+
+Multi-line orders reserve stock **in product id order**, so two orders holding
+the same two products lock them in the same sequence and cannot deadlock. If
+any line fails, the exception rolls back the order, its lines, and the stock
+already taken for earlier lines.
+
+### An order is an immutable record
+
+Prices, product names, SKUs, image URLs and the whole delivery address are
+snapshotted onto the order. Editing a product or an address afterwards does
+not rewrite what was bought, and the database's CHECK constraints keep the
+invoice arithmetic true even if the service layer is wrong.
+
+### The status workflow
+
+```
+PLACED ──► CONFIRMED ──► PACKING ──► OUT_FOR_DELIVERY ──► DELIVERED
+   │            │            │               │
+   └────────────┴────────────┴───────────────┴──────────► CANCELLED
+```
+
+`ALLOWED_STATUS_TRANSITIONS` in `app/enums.py` is the whole rule. An order
+never moves backwards, never skips a stage, and `DELIVERED` and `CANCELLED`
+are terminal. Every move is appended to `order_status_history` with who made
+it. `/admin/orders/{n}` publishes the moves that remain open so the desktop
+client offers only those — and the server re-checks every one regardless.
+
+Customers may cancel only while the order is `PLACED` or `CONFIRMED`; after
+that it is a phone call. Cancelling returns the stock and decrements
+`sold_quantity`, because a withdrawn order was never a sale.
 
 ---
 
@@ -426,6 +509,27 @@ customer), timestamps.
 **cart_items** — `id`, `cart_id` → `carts.id` (`CASCADE`), `product_id` →
 `products.id` (`RESTRICT`), `quantity`, timestamps. Deliberately no price.
 
+**orders** — `id`, `order_number` (unique, `KC-000123`), `user_id` →
+`users.id` (`RESTRICT`), `status`, `subtotal`, `discount`, `items_total`,
+`delivery_charge`, `total`, `currency`, the delivery address **snapshotted**
+field by field, `placed_at`, `delivered_at`, `cancelled_at`,
+`cancellation_reason`, timestamps.
+
+**order_items** — `id`, `order_id` → `orders.id` (`CASCADE`), `product_id` →
+`products.id` (`RESTRICT`), and a snapshot of what was bought:
+`product_name`, `product_sku`, `product_image_url`, `quantity`, `unit_mrp`,
+`unit_price`, `line_total`, `line_discount`.
+
+**order_status_history** — `id`, `order_id` → `orders.id` (`CASCADE`),
+`from_status`, `to_status`, `changed_by_user_id` → `users.id` (`SET NULL`),
+`changed_by_name` (snapshotted), `note`, `created_at`. Append-only.
+
+Orders snapshot everything for one reason: an order is a record of what was
+actually bought. Renaming a product or editing a saved address must not
+rewrite history. `user_id` is `RESTRICT` so a customer with orders cannot be
+deleted out from under them, and `changed_by_user_id` is `SET NULL` with the
+name kept, so removing a staff account does not erase who did what.
+
 `RESTRICT` is deliberate: deleting a role that still has users, or a category
 that still has products, must fail rather than cascade-delete live data.
 Product images use `CASCADE` because an image has no meaning without its
@@ -444,6 +548,12 @@ These hold even if a bug slips past the service layer:
 | Deleting a product removes its images | FK `ON DELETE CASCADE` |
 | At most one default address per customer | Partial unique index |
 | A PIN code is six digits, never starting with zero | CHECK constraint |
+| `items_total = subtotal − discount` on every order | CHECK constraint |
+| `total = items_total + delivery_charge` on every order | CHECK constraint |
+| Order money and quantities are non-negative | CHECK constraints |
+| Order numbers are unique | Unique index |
+| A customer with orders cannot be deleted | FK `ON DELETE RESTRICT` |
+| A product that has been ordered cannot be deleted | FK `ON DELETE RESTRICT` |
 | One line per product in a basket | Composite unique constraint |
 | A basket quantity is always positive | CHECK constraint |
 | A product in someone's basket cannot be deleted | FK `ON DELETE RESTRICT` |

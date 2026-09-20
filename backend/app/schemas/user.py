@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
@@ -152,3 +153,26 @@ class UserAdminUpdate(BaseModel):
     is_active: bool | None = None
     is_verified: bool | None = None
     role: RoleName | None = None
+
+
+class CustomerSummary(BaseModel):
+    """A customer as the back office sees them: the account plus its trading.
+
+    The order figures are computed from real orders; a customer who has never
+    ordered shows zero rather than being hidden.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    email: EmailStr
+    full_name: str
+    phone: str | None = None
+    is_active: bool
+    is_verified: bool
+    created_at: datetime
+    last_login_at: datetime | None = None
+
+    order_count: int = Field(description="Orders placed, excluding cancelled ones.")
+    total_spent: Decimal = Field(description="Sum of those orders' totals.")
+    last_order_at: datetime | None = None

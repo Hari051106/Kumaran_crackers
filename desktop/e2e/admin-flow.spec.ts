@@ -7,7 +7,7 @@
  *
  * Nothing is stubbed. If the backend contract changes, these fail.
  */
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 
 // Supplied by the environment so no working credential is committed.
 // Defaults match the local development admin created by
@@ -18,6 +18,7 @@ const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? 'Admin@12345';
 // The development database persists between runs, so each run works with its
 // own uniquely-named records rather than colliding with the last one.
 const RUN = Date.now().toString().slice(-6);
+const API = 'http://127.0.0.1:8000/api/v1';
 const CATEGORY_NAME = `E2E Rockets ${RUN}`;
 const PRODUCT_NAME = `E2E Thunder Shell ${RUN}`;
 
@@ -77,11 +78,22 @@ test.describe('Dashboard', () => {
     await expect(page.getByTestId('category-chart').locator('svg')).toBeVisible();
   });
 
-  test('states plainly that sales figures do not exist yet', async ({ page }) => {
+  test('shows trading figures, or says there are none - never both', async ({ page }) => {
     await signIn(page);
+
     const notice = page.getByTestId('sales-unavailable');
-    await expect(notice).toBeVisible();
-    await expect(notice).toContainText('not available yet');
+    const revenue = page.getByTestId('stat-revenue-today');
+    const hasOrders = (await revenue.count()) > 0;
+
+    if (hasOrders) {
+      await expect(revenue).toBeVisible();
+      await expect(page.getByTestId('stat-pending-orders')).toBeVisible();
+      await expect(notice).toHaveCount(0);
+    } else {
+      await expect(notice).toBeVisible();
+      await expect(notice).toContainText('No orders have been placed yet');
+      await expect(revenue).toHaveCount(0);
+    }
   });
 });
 
@@ -204,14 +216,189 @@ test.describe('Catalogue management', () => {
   });
 });
 
-test.describe('Screens awaiting later milestones', () => {
-  test('orders says what it will do rather than showing invented data', async ({ page }) => {
+test.describe('Order management', () => {
+  test('finds a real order, moves it on, and records who did it', async ({ page, request }) => {
+    const order = await placeOrderThroughTheApi(request);
+
+    await signIn(page);
+    await page.getByRole('link', { name: 'Orders' }).click();
+    await expect(page.getByTestId('orders-page')).toBeVisible();
+
+    // ---- Find it by number ----
+    await page.getByTestId('order-search').fill(order.number);
+    const row = page.getByTestId(`order-row-${order.number}`);
+    await expect(row).toBeVisible();
+    await expect(row).toContainText(order.total);
+    await expect(row).toContainText('Order placed');
+
+    // ---- Open it ----
+    await page.getByTestId(`open-order-${order.number}`).click();
+    const detail = page.getByTestId('order-detail');
+    await expect(detail).toBeVisible();
+    // The snapshot the server took, down to the exact amount.
+    await expect(detail).toContainText(order.total);
+    await expect(detail).toContainText(order.productName);
+    await expect(detail).toContainText('Chennai');
+
+    // ---- Move it on ----
+    await page.getByTestId('order-next-status').selectOption('CONFIRMED');
+    await page.getByTestId('order-status-note').fill('Checked against stock');
+    await page.getByTestId('apply-status').click();
+
+    await expect(page.getByTestId('toast-success').last()).toBeVisible();
+    await expect(detail.getByTestId('order-status-CONFIRMED').first()).toBeVisible();
+
+    // ---- The audit trail names the change and who made it ----
+    const history = page.getByTestId('order-history');
+    await expect(history).toContainText('Checked against stock');
+    await expect(history).toContainText('Kumaran Admin');
+  });
+
+  test('offers only the moves the server allows', async ({ page, request }) => {
+    const order = await placeOrderThroughTheApi(request);
+
+    await signIn(page);
+    await page.getByRole('link', { name: 'Orders' }).click();
+    await page.getByTestId('order-search').fill(order.number);
+    await page.getByTestId(`open-order-${order.number}`).click();
+
+    // A placed order may only be confirmed or cancelled - never delivered
+    // directly, and never moved backwards.
+    const options = page.getByTestId('order-next-status').locator('option');
+    await expect(options).toHaveText(['Choose…', 'Cancelled', 'Confirmed']);
+  });
+
+  test('warns before a cancellation returns stock', async ({ page, request }) => {
+    const order = await placeOrderThroughTheApi(request);
+
+    await signIn(page);
+    await page.getByRole('link', { name: 'Orders' }).click();
+    await page.getByTestId('order-search').fill(order.number);
+    await page.getByTestId(`open-order-${order.number}`).click();
+
+    await page.getByTestId('order-next-status').selectOption('CANCELLED');
+    await expect(page.getByTestId('cancel-warning')).toContainText('returns every item');
+  });
+
+  test('filters by status', async ({ page, request }) => {
+    const order = await placeOrderThroughTheApi(request);
+
     await signIn(page);
     await page.getByRole('link', { name: 'Orders' }).click();
 
+    // Delivered orders exclude a just-placed one.
+    await page.getByTestId('order-status-filter').selectOption('DELIVERED');
+    await page.getByTestId('order-search').fill(order.number);
+    await expect(page.getByTestId(`order-row-${order.number}`)).toHaveCount(0);
+
+    await page.getByTestId('order-status-filter').selectOption('PLACED');
+    await expect(page.getByTestId(`order-row-${order.number}`)).toBeVisible();
+  });
+});
+
+test.describe('Customer records', () => {
+  test('shows a customer with the order they actually placed', async ({ page, request }) => {
+    const order = await placeOrderThroughTheApi(request);
+
+    await signIn(page);
+    await page.getByRole('link', { name: 'Customers' }).click();
+    await expect(page.getByTestId('customers-page')).toBeVisible();
+
+    await page.getByTestId('customer-search').fill(order.customerEmail);
+    const row = page.locator('[data-testid^="customer-row-"]').first();
+    await expect(row).toBeVisible();
+    await expect(row).toContainText(order.customerEmail);
+    await expect(row).toContainText(order.total);
+
+    // ---- Their orders are one click away ----
+    await row.getByRole('button', { name: 'Orders' }).click();
+    await expect(page.getByTestId('orders-page')).toBeVisible();
+    await expect(page.getByTestId(`order-row-${order.number}`)).toBeVisible();
+  });
+});
+
+test.describe('Screens awaiting later milestones', () => {
+  test('delivery says what it will do rather than showing invented data', async ({ page }) => {
+    await signIn(page);
+    await page.getByRole('link', { name: 'Delivery' }).click();
+
     const placeholder = page.getByTestId('placeholder-page');
     await expect(placeholder).toBeVisible();
-    await expect(placeholder).toContainText('Milestone 6');
+    await expect(placeholder).toContainText('Milestone 7');
     await expect(placeholder).toContainText('No sample data is shown here on purpose');
   });
 });
+
+/**
+ * Create a real order through the customer API.
+ *
+ * The admin screens can only be tested against orders that exist, and the
+ * back office has no way to create one - only customers place orders. So this
+ * drives the real customer endpoints: register, add to basket, save an
+ * address, place the order. Nothing is stubbed.
+ */
+async function placeOrderThroughTheApi(request: APIRequestContext): Promise<{
+  number: string;
+  total: string;
+  productName: string;
+  customerEmail: string;
+}> {
+  const unique = `${RUN}${Math.floor(Math.random() * 9000 + 1000)}`;
+  const email = `e2e.shopper.${unique}@example.com`;
+
+  const registered = await request.post(`${API}/auth/register`, {
+    data: { email, password: 'Shop@12345', full_name: `E2E Shopper ${unique}` },
+  });
+  expect(registered.ok()).toBeTruthy();
+  const token = (await registered.json()).tokens.access_token;
+  const auth = { Authorization: `Bearer ${token}` };
+
+  const catalogue = await request.get(`${API}/products?in_stock=true&page_size=1`);
+  const product = (await catalogue.json()).items[0];
+  expect(product, 'the catalogue needs at least one product in stock').toBeTruthy();
+
+  await request.post(`${API}/cart/items`, {
+    headers: auth,
+    data: { product_id: product.id, quantity: 1 },
+  });
+
+  const address = await request.post(`${API}/addresses`, {
+    headers: auth,
+    data: {
+      full_name: `E2E Shopper ${unique}`,
+      phone: '9876543210',
+      house_number: '7',
+      street: 'Mount Road',
+      area: 'Guindy',
+      city: 'Chennai',
+      state: 'Tamil Nadu',
+      pincode: '600032',
+    },
+  });
+  expect(address.ok()).toBeTruthy();
+
+  const placed = await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { address_id: (await address.json()).id },
+  });
+  expect(placed.ok(), await placed.text()).toBeTruthy();
+  const order = await placed.json();
+
+  return {
+    number: order.order_number,
+    // Formatted the way the admin screens render it, so assertions compare
+    // like with like.
+    total: formatRupees(order.total),
+    productName: product.name,
+    customerEmail: email,
+  };
+}
+
+/** "3748.50" -> "₹3,748.50", matching the renderer's Indian grouping. */
+function formatRupees(value: string): string {
+  const [whole = '0', fraction = ''] = value.split('.');
+  const last3 = whole.slice(-3);
+  const rest = whole.slice(0, -3);
+  const grouped = rest ? `${rest.replace(/\B(?=(\d{2})+(?!\d))/g, ',')},${last3}` : last3;
+  return `₹${grouped}.${(fraction + '00').slice(0, 2)}`;
+}

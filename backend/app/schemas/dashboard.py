@@ -1,9 +1,9 @@
 """Dashboard schemas for the admin desktop application.
 
-Only metrics the system can actually compute today appear here. Sales, revenue
-and order counts arrive with the order system in Milestone 6; inventing
-placeholder figures now would put fiction on a screen a shopkeeper makes
-decisions from.
+Only metrics the system can actually compute appear here. Sales figures are
+reported once there are orders to measure; until the first order is placed,
+`sales_metrics_available` is False and the client says so rather than showing a
+zero that reads like a quiet trading day.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
+from app.schemas.order import OrderSummary
 from app.schemas.product import ProductListItem
 
 
@@ -43,6 +44,35 @@ class CategoryProductCount(BaseModel):
     product_count: int
 
 
+class SalesStats(BaseModel):
+    """Trading figures. Cancelled orders are excluded from every total."""
+
+    orders_today: int
+    revenue_today: Decimal
+    orders_this_week: int
+    revenue_this_week: Decimal
+    orders_this_month: int
+    revenue_this_month: Decimal
+
+    total_orders: int = Field(description="Orders ever placed, cancelled ones excluded.")
+    lifetime_revenue: Decimal
+    average_order_value: Decimal = Field(
+        description="Lifetime revenue divided by those orders; zero when there are none."
+    )
+
+
+class OrderStatusCount(BaseModel):
+    status: str
+    label: str
+    count: int
+
+
+class BestSeller(BaseModel):
+    product_name: str
+    units_sold: int
+    revenue: Decimal
+
+
 class DashboardStats(BaseModel):
     """Everything the admin dashboard renders from real data."""
 
@@ -52,9 +82,15 @@ class DashboardStats(BaseModel):
     products_per_category: list[CategoryProductCount]
     recent_products: list[ProductListItem]
 
-    # Named explicitly so the desktop client can show an honest "arriving in
-    # Milestone 6" state rather than a zero that looks like real trading data.
+    # ---- Trading ------------------------------------------------------------
+    sales: SalesStats
+    orders_by_status: list[OrderStatusCount]
+    best_sellers: list[BestSeller]
+    recent_orders: list[OrderSummary]
+    pending_orders: int = Field(description="Placed or confirmed, i.e. waiting to be acted on.")
+
+    #: False until the first order is placed, so the client can distinguish
+    #: "nothing has been sold yet" from "a quiet day".
     sales_metrics_available: bool = Field(
-        default=False,
-        description="False until the order system lands; no sales figures exist yet.",
+        description="True once at least one order exists.",
     )

@@ -6,16 +6,27 @@
  */
 import { api } from './client';
 import type {
+  AdminOrderDetail,
+  AdminOrderSummary,
   AuthResponse,
   Category,
   CategoryWithCount,
+  CustomerSummary,
   DashboardStats,
+  OrderStatus,
   Page,
   ProductAdminDetail,
   ProductListItem,
   ProductSort,
   User,
 } from '../types/api';
+
+/** Drop empty values so the backend sees a clean query string. */
+function clean<T extends object>(params: T): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(params).filter(([, value]) => value !== undefined && value !== ''),
+  );
+}
 
 // ---- Auth -------------------------------------------------------------------
 export const authApi = {
@@ -101,11 +112,9 @@ export interface ProductInput {
 
 export const productsApi = {
   async search(params: ProductQuery = {}): Promise<Page<ProductListItem>> {
-    // Strip empty values so the backend sees a clean query string.
-    const cleaned = Object.fromEntries(
-      Object.entries(params).filter(([, value]) => value !== undefined && value !== ''),
-    );
-    const { data } = await api.get<Page<ProductListItem>>('/products', { params: cleaned });
+    const { data } = await api.get<Page<ProductListItem>>('/products', {
+      params: clean(params),
+    });
     return data;
   },
   async getById(id: number): Promise<ProductAdminDetail> {
@@ -144,6 +153,56 @@ export const productsApi = {
   async outOfStock(limit = 50): Promise<ProductAdminDetail[]> {
     const { data } = await api.get<ProductAdminDetail[]>('/products/out-of-stock', {
       params: { limit },
+    });
+    return data;
+  },
+};
+
+// ---- Orders -----------------------------------------------------------------
+export interface OrderQuery {
+  /** Matches order number, recipient name, phone or customer email. */
+  query?: string;
+  status?: OrderStatus | '';
+  page?: number;
+  page_size?: number;
+}
+
+export const ordersApi = {
+  async search(params: OrderQuery = {}): Promise<Page<AdminOrderSummary>> {
+    const { data } = await api.get<Page<AdminOrderSummary>>('/admin/orders', {
+      params: clean(params),
+    });
+    return data;
+  },
+  async get(orderNumber: string): Promise<AdminOrderDetail> {
+    const { data } = await api.get<AdminOrderDetail>(`/admin/orders/${orderNumber}`);
+    return data;
+  },
+  async updateStatus(
+    orderNumber: string,
+    status: OrderStatus,
+    note?: string,
+  ): Promise<AdminOrderDetail> {
+    const { data } = await api.post<AdminOrderDetail>(`/admin/orders/${orderNumber}/status`, {
+      status,
+      note: note?.trim() ? note.trim() : null,
+    });
+    return data;
+  },
+};
+
+// ---- Customers ---------------------------------------------------------------
+export interface CustomerQuery {
+  query?: string;
+  is_active?: boolean;
+  page?: number;
+  page_size?: number;
+}
+
+export const customersApi = {
+  async search(params: CustomerQuery = {}): Promise<Page<CustomerSummary>> {
+    const { data } = await api.get<Page<CustomerSummary>>('/admin/customers', {
+      params: clean(params),
     });
     return data;
   },

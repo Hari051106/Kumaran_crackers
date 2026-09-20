@@ -76,6 +76,7 @@ cd desktop
 npm install
 
 npm run dev          # Vite dev server + Electron, with hot reload
+npm run lint         # ESLint over the renderer and the Electron sources
 npm run build        # typecheck, build the renderer, bundle main + preload
 npm run package:win  # produce a Windows installer
 ```
@@ -86,6 +87,7 @@ npm run package:win  # produce a Windows installer
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run build` | Typecheck, then build renderer and Electron bundles |
 | `npm run preview` | Serve the built renderer in a browser on :4173 |
+| `npm run lint` | ESLint (flat config in `eslint.config.js`) |
 | `npm run package:win` | Windows installer via electron-builder |
 
 ---
@@ -102,8 +104,9 @@ desktop/
 │   ├── auth/          Session restore, login, logout
 │   ├── components/    Buttons, fields, tables, modals, toasts, stat cards
 │   ├── layouts/       AppShell - sidebar, header, routed outlet
-│   ├── lib/           Money formatting, the bridge accessor
-│   ├── pages/         Login, Dashboard, Products, Categories, Inventory…
+│   ├── lib/           Money and date formatting, the bridge accessor
+│   ├── pages/         Login, Dashboard, Products, Categories, Inventory,
+│   │                  Orders, Customers, Settings
 │   └── types/         Mirrors of the backend schemas
 ├── e2e/               Playwright: Electron security + admin workflow
 └── scripts/           esbuild bundling for main and preload
@@ -132,14 +135,32 @@ through a float, including Indian digit grouping (`₹1,40,568.75`).
 
 ## What the dashboard shows — and does not
 
-Every figure comes from the live database. Sales, revenue and order counts do
-not exist until the order system lands, so the backend returns
-`sales_metrics_available: false` and the dashboard states that plainly.
+Every figure comes from the live database. Before the first order exists the
+backend returns `sales_metrics_available: false`, and the dashboard says so
+plainly instead of rendering a zero that reads like a quiet trading day. Once
+orders exist, the trading tiles replace that notice — never both at once.
 
-Nothing on any screen is mocked. The Orders, Customers, Delivery and Reports
-screens say which milestone brings them rather than displaying invented rows — a
-screen of fake data is worse than an honest empty one, because it looks like it
-works.
+Nothing on any screen is mocked. The Delivery and Reports screens say which
+milestone brings them rather than displaying invented rows — a screen of fake
+data is worse than an honest empty one, because it looks like it works.
+
+---
+
+## Managing orders
+
+The Orders screen lists every order, searchable by order number, recipient,
+phone or customer email, and filterable by status. Opening one shows what was
+bought at the prices that were actually charged, the delivery address as it was
+at purchase, the bill, and the full audit trail.
+
+The status control offers only the moves the server says are still open
+(`allowed_transitions`), so the UI cannot suggest something the workflow
+forbids — and the server re-checks every move regardless. Cancelling is a
+`danger` action with an explicit warning, because it returns every item on the
+order to stock and cannot be undone.
+
+The Customers screen shows each account with its real order count and spend,
+cancelled orders excluded, and links straight to that customer's orders.
 
 ---
 
@@ -167,6 +188,11 @@ backend and a real PostgreSQL database: sign in, create a category, add a
 product with a price and stock, confirm the price survives the round trip
 exactly, adjust inventory, and check that server-side rules (stock floor, MRP
 ceiling, category-with-products) surface properly in the UI.
+
+Its order tests need an order to exist, and the back office cannot create one —
+only customers place orders. So they call the real customer API (register, add
+to basket, save an address, place the order) and then drive the admin screens
+against it. Nothing is stubbed.
 
 On a machine without a display, prefix with `xvfb-run -a`.
 

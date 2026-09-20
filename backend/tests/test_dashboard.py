@@ -7,11 +7,23 @@ from decimal import Decimal
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.enums import RoleName
+from app.enums import OrderStatus, RoleName
 from app.models.category import Category
-from tests.conftest import make_category, make_product, make_user
+from tests.conftest import (
+    advance_to,
+    make_category,
+    make_product,
+    make_user,
+    order_now,
+)
 
 DASHBOARD = "/api/v1/admin/dashboard"
+
+
+def order_total(client: TestClient, headers: dict[str, str], product, quantity: int = 1) -> str:
+    """Place an order and return what it was actually charged."""
+    number = order_now(client, headers, product, quantity=quantity)
+    return client.get(f"/api/v1/orders/{number}", headers=headers).json()["total"]
 
 
 class TestDashboardAuthorization:
@@ -170,17 +182,244 @@ class TestChartsAndRecent:
 
 
 class TestHonestyAboutMissingData:
-    def test_sales_metrics_are_declared_unavailable(
+    def test_sales_are_flagged_unavailable_before_any_order_exists(
         self, client: TestClient, admin_headers: dict[str, str]
     ) -> None:
-        """Until orders exist there are no sales; the flag says so explicitly."""
-        assert (
-            client.get(DASHBOARD, headers=admin_headers).json()["sales_metrics_available"] is False
-        )
-
-    def test_no_fabricated_sales_fields_are_returned(
-        self, client: TestClient, admin_headers: dict[str, str]
-    ) -> None:
+        """Distinguishes "nothing sold yet" from "a quiet trading day"."""
         body = client.get(DASHBOARD, headers=admin_headers).json()
-        for invented in ("today_sales", "revenue", "pending_orders", "total_orders"):
-            assert invented not in body
+        assert body["sales_metrics_available"] is False
+
+    def test_sales_figures_are_all_zero_before_any_order_exists(
+        self, client: TestClient, admin_headers: dict[str, str]
+    ) -> None:
+        """Real fields, honestly zero - not invented numbers."""
+        sales = client.get(DASHBOARD, headers=admin_headers).json()["sales"]
+
+        assert sales["total_orders"] == 0
+        assert Decimal(sales["lifetime_revenue"]) == Decimal("0.00")
+        # Dividing by zero orders would be an error, not a number.
+        assert Decimal(sales["average_order_value"]) == Decimal("0.00")
+
+    def test_every_status_appears_even_at_zero(
+        self, client: TestClient, admin_headers: dict[str, str]
+    ) -> None:
+        """A stable chart shape: rows do not appear and vanish as orders move."""
+        rows = client.get(DASHBOARD, headers=admin_headers).json()["orders_by_status"]
+        statuses = {row["status"] for row in rows}
+        assert statuses == {status.value for status in OrderStatus}
+        assert all(row["count"] == 0 for row in rows)
+
+
+class TestSalesFigures:
+    """Once orders exist the figures are real, and they add up."""
+
+    def test_sales_become_available_after_the_first_order(
+        self,
+        client: TestClient,
+        product,
+        customer_headers: dict[str, str],
+        admin_headers: dict[str, str],
+    ) -> None:
+        order_now(client, customer_headers, product, quantity=1)
+
+        body = client.get(DASHBOARD, headers=admin_headers).json()
+
+        assert body["sales_metrics_available"] is True
+        assert body["sales"]["total_orders"] == 1
+
+    def test_revenue_is_the_sum_of_the_orders(
+        self,
+        client: TestClient,
+        db: Session,
+        category: Category,
+        customer_headers: dict[str, str],
+        admin_headers: dict[str, str],
+    ) -> None:
+        first = make_product(
+            db, category=category, name="Rev A", sku="RVA", mrp="300.00", selling_price="250.00"
+        )
+        second = make_product(
+            db, category=category, name="Rev B", sku="RVB", mrp="150.00", selling_price="125.50"
+        )
+        totals = [
+            Decimal(order_total(client, customer_headers, first, quantity=2)),
+            Decimal(order_total(client, customer_headers, second, quantity=1)),
+        ]
+
+        sales = client.get(DASHBOARD, headers=admin_headers).json()["sales"]
+
+        assert sales["total_orders"] == 2
+        assert Decimal(sales["lifetime_revenue"]) == sum(totals)
+        assert Decimal(sales["revenue_today"]) == sum(totals)
+
+    def test_the_average_order_value_is_revenue_over_orders(
+        self,
+        client: TestClient,
+        db: Session,
+        category: Category,
+        customer_headers: dict[str, str],
+        admin_headers: dict[str, str],
+    ) -> None:
+        for index in range(2):
+            item = make_product(db, category=category, name=f"Avg {index}", sku=f"AV{index}")
+            order_now(client, customer_headers, item, quantity=1)
+
+        sales = client.get(DASHBOARD, headers=admin_headers).json()["sales"]
+
+        expected = Decimal(sales["lifetime_revenue"]) / Decimal(sales["total_orders"])
+        assert Decimal(sales["average_order_value"]) == expected.quantize(Decimal("0.01"))
+
+    def test_cancelled_orders_are_not_counted_as_revenue(
+        self,
+        client: TestClient,
+        db: Session,
+        category: Category,
+        customer_headers: dict[str, str],
+        admin_headers: dict[str, str],
+    ) -> None:
+        """A withdrawn order is not a sale, however it was withdrawn."""
+        kept = make_product(db, category=category, name="Kept", sku="KP-1")
+        dropped = make_product(db, category=category, name="Dropped", sku="DR-1")
+        kept_number = order_now(client, customer_headers, kept, quantity=1)
+        dropped_number = order_now(client, customer_headers, dropped, quantity=1)
+        client.post(f"/api/v1/orders/{dropped_number}/cancel", json={}, headers=customer_headers)
+
+        sales = client.get(DASHBOARD, headers=admin_headers).json()["sales"]
+
+        kept_total = client.get(f"/api/v1/orders/{kept_number}", headers=customer_headers).json()[
+            "total"
+        ]
+        assert sales["total_orders"] == 1
+        assert Decimal(sales["lifetime_revenue"]) == Decimal(kept_total)
+
+    def test_a_cancelled_order_still_appears_in_the_status_chart(
+        self,
+        client: TestClient,
+        product,
+        customer_headers: dict[str, str],
+        admin_headers: dict[str, str],
+    ) -> None:
+        """Excluded from revenue, but not hidden from the operator."""
+        number = order_now(client, customer_headers, product, quantity=1)
+        client.post(f"/api/v1/orders/{number}/cancel", json={}, headers=customer_headers)
+
+        rows = {
+            row["status"]: row["count"]
+            for row in client.get(DASHBOARD, headers=admin_headers).json()["orders_by_status"]
+        }
+
+        assert rows["CANCELLED"] == 1
+        assert rows["PLACED"] == 0
+
+
+class TestOperationalCounts:
+    def test_orders_by_status_follows_the_workflow(
+        self,
+        client: TestClient,
+        db: Session,
+        category: Category,
+        customer_headers: dict[str, str],
+        staff_headers: dict[str, str],
+        admin_headers: dict[str, str],
+    ) -> None:
+        first = make_product(db, category=category, name="Flow A", sku="FLA")
+        second = make_product(db, category=category, name="Flow B", sku="FLB")
+        order_now(client, customer_headers, first, quantity=1)
+        moved = order_now(client, customer_headers, second, quantity=1)
+        advance_to(client, staff_headers, moved, OrderStatus.PACKING)
+
+        rows = {
+            row["status"]: row["count"]
+            for row in client.get(DASHBOARD, headers=admin_headers).json()["orders_by_status"]
+        }
+
+        assert rows["PLACED"] == 1
+        assert rows["PACKING"] == 1
+        assert rows["CONFIRMED"] == 0
+
+    def test_pending_orders_counts_what_still_needs_doing(
+        self,
+        client: TestClient,
+        db: Session,
+        category: Category,
+        customer_headers: dict[str, str],
+        staff_headers: dict[str, str],
+        admin_headers: dict[str, str],
+    ) -> None:
+        waiting = make_product(db, category=category, name="Waiting", sku="WT-1")
+        packed = make_product(db, category=category, name="Packed", sku="PK-1")
+        order_now(client, customer_headers, waiting, quantity=1)
+        busy = order_now(client, customer_headers, packed, quantity=1)
+
+        before = client.get(DASHBOARD, headers=admin_headers).json()["pending_orders"]
+        assert before == 2
+
+        # Once it is being packed it is no longer waiting on anybody.
+        advance_to(client, staff_headers, busy, OrderStatus.PACKING)
+
+        after = client.get(DASHBOARD, headers=admin_headers).json()["pending_orders"]
+        assert after == 1
+
+    def test_best_sellers_rank_by_units_sold(
+        self,
+        client: TestClient,
+        db: Session,
+        category: Category,
+        customer_headers: dict[str, str],
+        admin_headers: dict[str, str],
+    ) -> None:
+        popular = make_product(db, category=category, name="Popular", sku="PO-1")
+        quiet = make_product(db, category=category, name="Quiet", sku="QU-1")
+        order_now(client, customer_headers, popular, quantity=7)
+        order_now(client, customer_headers, quiet, quantity=2)
+
+        best = client.get(DASHBOARD, headers=admin_headers).json()["best_sellers"]
+
+        assert [row["product_name"] for row in best] == ["Popular", "Quiet"]
+        assert best[0]["units_sold"] == 7
+
+    def test_best_sellers_ignore_cancelled_orders(
+        self,
+        client: TestClient,
+        db: Session,
+        category: Category,
+        customer_headers: dict[str, str],
+        admin_headers: dict[str, str],
+    ) -> None:
+        item = make_product(db, category=category, name="Ghost", sku="GH-1")
+        number = order_now(client, customer_headers, item, quantity=9)
+        client.post(f"/api/v1/orders/{number}/cancel", json={}, headers=customer_headers)
+
+        best = client.get(DASHBOARD, headers=admin_headers).json()["best_sellers"]
+
+        assert best == []
+
+    def test_recent_orders_are_newest_first_and_capped(
+        self,
+        client: TestClient,
+        db: Session,
+        category: Category,
+        customer_headers: dict[str, str],
+        admin_headers: dict[str, str],
+    ) -> None:
+        numbers = []
+        for index in range(6):
+            item = make_product(db, category=category, name=f"Recent {index}", sku=f"RC{index}")
+            numbers.append(order_now(client, customer_headers, item, quantity=1))
+
+        recent = client.get(DASHBOARD, headers=admin_headers).json()["recent_orders"]
+
+        assert len(recent) == 5
+        assert recent[0]["order_number"] == numbers[-1]
+
+    def test_a_cancelled_order_is_not_shown_as_pending(
+        self,
+        client: TestClient,
+        product,
+        customer_headers: dict[str, str],
+        admin_headers: dict[str, str],
+    ) -> None:
+        number = order_now(client, customer_headers, product, quantity=1)
+        client.post(f"/api/v1/orders/{number}/cancel", json={}, headers=customer_headers)
+
+        assert client.get(DASHBOARD, headers=admin_headers).json()["pending_orders"] == 0

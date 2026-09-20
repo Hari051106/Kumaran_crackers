@@ -13,9 +13,11 @@ import '../models/paged.dart';
 import '../models/product.dart';
 import '../models/address.dart';
 import '../models/cart.dart';
+import '../models/order.dart';
 import '../models/user.dart';
 import '../repositories/auth_repository.dart';
 import '../repositories/catalog_repository.dart';
+import '../repositories/order_repository.dart';
 import '../repositories/shopping_repository.dart';
 
 // ---- Infrastructure ---------------------------------------------------------
@@ -55,6 +57,10 @@ final catalogRepositoryProvider = Provider<CatalogRepository>(
 
 final shoppingRepositoryProvider = Provider<ShoppingRepository>(
   (ref) => ShoppingRepository(ref.watch(apiClientProvider)),
+);
+
+final orderRepositoryProvider = Provider<OrderRepository>(
+  (ref) => OrderRepository(ref.watch(apiClientProvider)),
 );
 
 // ---- Authentication ---------------------------------------------------------
@@ -257,4 +263,17 @@ final defaultAddressProvider = Provider<AsyncValue<Address?>>((ref) {
 // ---- Checkout ---------------------------------------------------------------
 final checkoutQuoteProvider = FutureProvider.family<CheckoutQuote, int>(
   (ref, addressId) => ref.watch(shoppingRepositoryProvider).quote(addressId),
+);
+
+// ---- Orders -----------------------------------------------------------------
+/// The first page of the customer's order history.
+///
+/// Later pages are appended by the history screen; keeping page one in a
+/// provider means placing or cancelling an order can simply invalidate it.
+final myOrdersProvider = FutureProvider<Paged<OrderSummary>>(
+  (ref) => ref.watch(orderRepositoryProvider).myOrders(),
+);
+
+final orderDetailProvider = FutureProvider.family<OrderDetail, String>(
+  (ref, orderNumber) => ref.watch(orderRepositoryProvider).detail(orderNumber),
 );
